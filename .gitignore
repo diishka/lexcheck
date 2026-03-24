@@ -1,0 +1,81 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environment
+venv/
+.venv/
+env/
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Frontend / Node
+frontend/node_modules/
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Build outputs
+frontend/dist/
+dist/
+build/
+
+# Vite
+frontend/.vite/
+.vite/
+
+# Python local db / temp
+*.sqlite3
+*.db
+*.tmp
+
+# Runtime / pid files
+*.pid
+
+# Uploaded / generated files if needed
+uploads/
+tmp/
+
+# Optional: compiled frontend cache
+frontend/.cache/
+
+# Optional: tests
+.coverage.*
+.cache/
+
+# Keep schema if you want versioned
+# schema.sql
+
+# If parser creates dumps and exports
+*.csv
+*.bak
+*.dump
+*.sql.gz
+backups/
+
+# If you do NOT want to track generated SQL dumps
+# Uncomment next line if schema.sql is generated every run
+# *.sql
