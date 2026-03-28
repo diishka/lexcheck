@@ -34,6 +34,12 @@ ARTICLE_FTS_RU_SQL = "to_tsvector('russian', a.content_ru)"
 ARTICLE_FTS_UZ_SQL = "to_tsvector('simple', COALESCE(a.content_uz, ''::text))"
 ASSISTANT_DATASET_MAIN = "lexai"
 ASSISTANT_DATASET_SCHEMA = "schema12"
+LOOKUP_STOP_WORDS = {
+    "qaysi", "qanday", "uchun", "bilan", "haqida", "boyicha", "bo'yicha", "bazadagi",
+    "bazada", "qonun", "qonunlar", "hujjat", "hujjatlar", "norma", "normalar", "modda",
+    "moddalar", "какие", "какой", "какая", "какое", "по", "для", "это", "that", "which",
+    "what", "with", "from", "laws", "law", "rules", "rule", "articles", "article",
+}
 
 
 # ── Connection lifecycle ──────────────────────────────────────────────────────
@@ -59,6 +65,140 @@ def normalize_assistant_dataset(dataset: str | None) -> str:
     return ASSISTANT_DATASET_MAIN
 
 
+def _normalize_lookup_text(text: str) -> str:
+    normalized = (text or "").lower()
+    for old, new in (("ʻ", "'"), ("ʼ", "'"), ("`", "'"), ("’", "'"), ("–", "-"), ("—", "-")):
+        normalized = normalized.replace(old, new)
+    return re.sub(r"\s+", " ", normalized).strip()
+
+
+def _query_requests_articles(text: str) -> bool:
+    normalized = _normalize_lookup_text(text)
+    return any(
+        token in normalized
+        for token in (
+            "modda", "moddalar", "статья", "статьи", "статей", "article", "articles",
+            "норма", "нормы", "норм", "aniq modda", "точные статьи",
+        )
+    )
+
+
+def _expand_search_query(text: str) -> str:
+    original = re.sub(r"\s+", " ", text or "").strip()
+    if not original:
+        return original
+
+    normalized = _normalize_lookup_text(original)
+    extras: list[str] = []
+
+    def add(*terms: str) -> None:
+        for term in terms:
+            if term and term not in extras and term not in normalized:
+                extras.append(term)
+
+    if "yuridik shaxs" in normalized:
+        add("юридических лиц", "юридическое лицо")
+    if "tugat" in normalized:
+        add("ликвидация", "ликвидации", "прекращение")
+    if "qayta tashkil" in normalized:
+        add("реорганизация", "реорганизации")
+    if "ro'yxat" in normalized or "royxat" in normalized:
+        add("регистрация", "зарегистрировать")
+    if "vasiylik" in normalized:
+        add("опека")
+    if "homiylik" in normalized:
+        add("попечительство")
+    if "muomala layoqat" in normalized or "layoqat" in normalized:
+        add("дееспособность", "недееспособности")
+    if "voyaga yetmagan" in normalized:
+        add("несовершеннолетних")
+    if "fuqarolik holati" in normalized:
+        add("гражданского состояния")
+    if "meros" in normalized:
+        add("наследование")
+    if "bankrot" in normalized:
+        add("банкротство", "санация")
+
+    return original if not extras else f"{original} {' '.join(extras)}"
+
+
+def _query_tokens_for_ranking(text: str) -> list[str]:
+    tokens = re.findall(r"[0-9A-Za-zА-Яа-яЁёЎўҚқҒғҲҳ'-]+", _normalize_lookup_text(text))
+    return [token for token in tokens if len(token) >= 3 and token not in LOOKUP_STOP_WORDS]
+
+
+def _article_match_score(article: dict, query_text: str) -> int:
+    query_norm = _normalize_lookup_text(query_text)
+    haystack = _normalize_lookup_text(
+        " ".join(
+            [
+                article.get("article_num") or "",
+                " ".join(article.get("keywords") or []),
+                article.get("content_uz") or "",
+                article.get("content_ru") or "",
+            ]
+        )
+    )
+    score = 0
+    for token in _query_tokens_for_ranking(query_text):
+        if token in haystack:
+            score += 5 if len(token) >= 6 else 3
+    article_num = _normalize_lookup_text(article.get("article_num") or "")
+    if article_num and article_num in query_norm:
+        score += 8
+    return score
+
+
+def _law_has_real_articles(law: dict) -> bool:
+    return any(
+        (article.get("article_num") or "").strip().lower()
+        not in {"", "-", "full_text", "full text", "document_text", "document text"}
+        for article in (law.get("articles") or [])
+    )
+
+
+def _candidate_sort_key(law: dict, query_text: str) -> tuple:
+    query_tokens = _query_tokens_for_ranking(query_text)
+    haystack = _normalize_lookup_text(
+        " ".join(
+            [
+                law.get("code") or "",
+                law.get("title_ru") or "",
+                law.get("title_uz") or "",
+                law.get("category") or "",
+                law.get("summary_ru") or "",
+                law.get("summary_uz") or "",
+            ]
+        )
+    )
+    title_hits = sum(1 for token in query_tokens if token in haystack)
+    real_articles = [
+        article for article in (law.get("articles") or [])
+        if (article.get("article_num") or "").strip().lower()
+        not in {"", "-", "full_text", "full text", "document_text", "document text"}
+    ]
+    best_article_score = max((_article_match_score(article, query_text) for article in real_articles), default=0)
+    return (
+        1 if _query_requests_articles(query_text) and real_articles else 0,
+        best_article_score,
+        title_hits,
+        len(real_articles),
+        float(law.get("rank") or 0),
+        int(law.get("year") or 0),
+    )
+
+
+def _prioritize_candidates(candidates: list[dict], query_text: str, top_k: int) -> list[dict]:
+    if not candidates:
+        return []
+    ranked = sorted(candidates, key=lambda law: _candidate_sort_key(law, query_text), reverse=True)
+    if _query_requests_articles(query_text):
+        with_real_articles = [law for law in ranked if _law_has_real_articles(law)]
+        if with_real_articles:
+            return with_real_articles[:top_k]
+    return ranked[:top_k]
+
+
 def _dataset_filter_sql(alias: str, dataset: str) -> str:
     if dataset == ASSISTANT_DATASET_SCHEMA:
         return f"{alias}.code LIKE 'UZB-%'"
@@ -67,16 +207,20 @@ def _dataset_filter_sql(alias: str, dataset: str) -> str:
 
 async def get_candidate_laws(query_text: str, top_k: int = 5, dataset: str | None = None) -> list[dict]:
     """Full-text search across titles, summaries, and article text."""
+    original_query_text = (query_text or "").strip()
+    expanded_query_text = _expand_search_query(original_query_text)
     dataset_name = normalize_assistant_dataset(dataset)
-    cache_key = (query_text.strip().lower(), top_k, dataset_name)
+    cache_key = (expanded_query_text.strip().lower(), top_k, dataset_name)
     now = time.time()
     cached = _candidate_cache.get(cache_key)
     if cached and (now - cached[0]) < CANDIDATE_CACHE_TTL:
         return cached[1]
 
-    code_tokens = _extract_code_tokens(query_text)
+    code_tokens = _extract_code_tokens(expanded_query_text)
     law_dataset_filter = _dataset_filter_sql("l", dataset_name)
     article_dataset_filter = _dataset_filter_sql("l", dataset_name)
+    article_focused = _query_requests_articles(original_query_text)
+    candidate_limit = max(top_k, min(24, top_k * 4 if article_focused else top_k))
 
     ranked_sql = f"""
         WITH query AS (
@@ -315,15 +459,15 @@ async def get_candidate_laws(query_text: str, top_k: int = 5, dataset: str | Non
     async with pool.acquire() as conn:
         matched_ids: list[int] = []
         if code_tokens:
-            exact_rows = await conn.fetch(exact_code_sql, code_tokens, CANDIDATE_ARTICLES_PER_LAW, top_k)
+            exact_rows = await conn.fetch(exact_code_sql, code_tokens, CANDIDATE_ARTICLES_PER_LAW, candidate_limit)
             rows.extend(exact_rows)
             matched_ids.extend([row["id"] for row in exact_rows])
 
-        remaining = max(0, top_k - len(rows))
+        remaining = max(0, candidate_limit - len(rows))
         if remaining > 0:
             fts_rows = await conn.fetch(
                 ranked_sql,
-                query_text,
+                expanded_query_text,
                 remaining,
                 CANDIDATE_ARTICLES_PER_LAW,
                 code_tokens,
@@ -337,6 +481,7 @@ async def get_candidate_laws(query_text: str, top_k: int = 5, dataset: str | Non
                 rows.extend(fallback_rows)
 
     result = [_parse_law(row) for row in rows]
+    result = _prioritize_candidates(result, original_query_text, top_k)
     if len(_candidate_cache) > CANDIDATE_CACHE_MAX:
         _candidate_cache.clear()
     _candidate_cache[cache_key] = (now, result)

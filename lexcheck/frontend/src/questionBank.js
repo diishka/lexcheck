@@ -7,6 +7,8 @@ const assistantQuestionsRu = [
   "Покажи статьи по банкротству и санации юридических лиц.",
   "Какие нормы в базе связаны с опекой и попечительством?",
   "Какие статьи касаются ограничения дееспособности граждан?",
+  /*
+  Архив русских вопросов:
   "Какие документы относятся к правовому положению несовершеннолетних?",
   "Какие нормы регулируют регистрацию актов гражданского состояния?",
   "Какие статьи в базе связаны с предпринимательской деятельностью граждан?",
@@ -54,6 +56,7 @@ const assistantQuestionsRu = [
   "Какие нормы регулируют порядок внесения изменений в учредительные документы?",
   "Какие документы в базе связаны с УП-110?",
   "Покажи точные статьи по регистрации, реорганизации и ликвидации юридических лиц.",
+  */
 ]
 
 const analyzerExamplesRu = [
@@ -66,60 +69,8 @@ const analyzerExamplesRu = [
     text: "Общество с ограниченной ответственностью может быть ликвидировано по заявлению одного участника без уведомления кредиторов и без публикации сведений о ликвидации.",
   },
   {
-    title: "Законопроект о продаже криптовалют без лицензии",
-    text: "Физические и юридические лица вправе открывать криптовалютные обменники и оказывать услуги по обмену цифровых активов без лицензии, регистрации и государственного контроля.",
-  },
-  {
-    title: "Законопроект о рекламе финансовых услуг без раскрытия рисков",
-    text: "Реклама кредитов, микрозаймов и инвестиционных продуктов допускается без указания процентной ставки, полной стоимости услуги и предупреждения о рисках для потребителя.",
-  },
-  {
-    title: "Законопроект о сборе персональных данных без согласия",
-    text: "Операторы цифровых платформ вправе собирать, обрабатывать и передавать третьим лицам персональные данные пользователей без их предварительного согласия, если это необходимо для развития сервиса.",
-  },
-  {
-    title: "Законопроект о трансграничной передаче данных без ограничений",
-    text: "Персональные данные граждан могут свободно передаваться на иностранные серверы без уведомления пользователя и без оценки уровня защиты в государстве-получателе.",
-  },
-  {
-    title: "Законопроект об отказе в выдаче сведений потребителю",
-    text: "Продавец в интернет-магазине вправе не раскрывать сведения о себе, о цене товара, порядке возврата и контактных данных до момента фактической доставки.",
-  },
-  {
-    title: "Законопроект о невозврате денег при дистанционной продаже",
-    text: "Покупатель не имеет права отказаться от товара, приобретенного дистанционным способом, после оформления заказа, даже если товар не был передан и не соответствует описанию.",
-  },
-  {
-    title: "Законопроект о бессрочном испытательном сроке",
-    text: "Работодатель вправе устанавливать испытательный срок на весь период работы сотрудника и расторгать договор без объяснения причин в любое время.",
-  },
-  {
-    title: "Законопроект о неоплачиваемой платформенной занятости",
-    text: "Работники цифровых платформ признаются независимыми исполнителями и не имеют права на минимальную оплату, отпуск, социальное страхование и иные трудовые гарантии.",
-  },
-  {
-    title: "Законопроект о запрете больничных выплат",
-    text: "Работодатель освобождается от обязанности оплачивать временную нетрудоспособность работников, если заболевание наступило вне территории работодателя.",
-  },
-  {
-    title: "Законопроект о полной свободе сверхурочной работы",
-    text: "Работодатель вправе привлекать работников к сверхурочной работе без ограничений по времени и без получения согласия работника.",
-  },
-  {
-    title: "Законопроект о запрете профсоюзов в частных компаниях",
-    text: "Частные организации вправе устанавливать внутренними правилами запрет на создание профсоюзов и коллективные обращения работников.",
-  },
-  {
     title: "Законопроект о браке без государственной регистрации",
     text: "Брак признается действительным с момента совместного проживания мужчины и женщины без обязательной государственной регистрации в органах ЗАГС.",
-  },
-  {
-    title: "Законопроект об одностороннем расторжении брака без уведомления",
-    text: "Любой супруг может расторгнуть брак в одностороннем порядке без уведомления второго супруга и без рассмотрения вопроса о правах детей.",
-  },
-  {
-    title: "Законопроект об отказе в алиментах на ребенка",
-    text: "Родитель освобождается от обязанности по уплате алиментов, если не проживает совместно с ребенком более одного года.",
   },
   {
     title: "Законопроект об ограничении дееспособности без суда",
@@ -141,138 +92,200 @@ const analyzerExamplesRu = [
     title: "Законопроект о полной дееспособности с 14 лет",
     text: "Граждане, достигшие 14 лет, признаются полностью дееспособными и вправе без согласия родителей заключать любые сделки, брать кредиты и отчуждать имущество.",
   },
+  /*
+  Архив русских кейсов анализатора:
+  - Законопроект о продаже криптовалют без лицензии
+  - Законопроект о рекламе финансовых услуг без раскрытия рисков
+  - Законопроект о сборе персональных данных без согласия
+  - Законопроект о трансграничной передаче данных без ограничений
+  - Законопроект об отказе в выдаче сведений потребителю
+  - Законопроект о невозврате денег при дистанционной продаже
+  - Законопроект о бессрочном испытательном сроке
+  - Законопроект о неоплачиваемой платформенной занятости
+  - Законопроект о запрете больничных выплат
+  - Законопроект о полной свободе сверхурочной работы
+  - Законопроект о запрете профсоюзов в частных компаниях
+  - Законопроект об одностороннем расторжении брака без уведомления
+  - Законопроект об отказе в алиментах на ребенка
+  - Законопроект о свободной продаже лекарств
+  - Законопроект о деятельности частных клиник без лицензии
+  - Законопроект о рекламе лекарств без ограничений
+  - Законопроект об открытии школы без аккредитации
+  - Законопроект о закрытом доступе к образованию
+  - Законопроект о валютных переводах без контроля
+  - Законопроект о банковских услугах без лицензии
+  - Законопроект о микрозаймах без лимитов
+  - Законопроект о блокировке счетов без решения суда
+  - Законопроект о приватизации земли без аукциона
+  - Законопроект о строительстве без разрешения
+  - Законопроект о вводе объекта без проверки безопасности
+  - Законопроект об отказе от экологической экспертизы
+  - Законопроект о выбросах без отчетности
+  - Законопроект о свободном использовании товарных знаков
+  - Законопроект об отказе от охраны авторских прав на софт
+  - Законопроект о принудительной передаче исходного кода
+  - Законопроект о госзакупках без конкурса
+  - Законопроект о запрете обжалования закупки
+  - Законопроект о таможенном ввозе без декларирования
+  - Законопроект о ввозе лекарств без сертификации
+  - Законопроект о деятельности филиала без регистрации
+  - Законопроект о свободной передаче доли в ООО
+  - Законопроект о необязательности устава
+  - Законопроект о смене директора без решения участников
+  - Законопроект о полной конфиденциальности бенефициаров
+  - Законопроект о рекламе, ориентированной на детей
+  - Законопроект о недобросовестном сравнении конкурентов
+  - Законопроект о полной свободе оферты на маркетплейсе
+  - Законопроект о хранении данных пользователей бессрочно
+  - Законопроект об электронной подписи без идентификации
+  - Законопроект об иностранной трудовой деятельности без разрешения
+  - Законопроект об аренде госимущества без оценки
+  */
+]
+
+const assistantQuestionsUz = [
+  "Bazadagi qaysi hujjatlar yuridik shaxslarni ro'yxatdan o'tkazishni tartibga soladi?",
+  "Qaysi normalar yuridik shaxslarni qayta tashkil etishga taalluqli?",
+  "Qaysi moddalar yuridik shaxslarni tugatish bilan bog'liq?",
+  "Qaysi hujjatlar mas'uliyati cheklangan jamiyatlar faoliyatini tartibga soladi?",
+  "Qaysi normalar tijorat tashkilotlariga taalluqli?",
+  "Yuridik shaxslarning bankrotligi va sanatsiyasi bo'yicha moddalarni ko'rsat.",
+  "Bazadagi qaysi normalar vasiylik va homiylik bilan bog'liq?",
+  "Qaysi moddalar fuqarolarning muomala layoqatini cheklashga taalluqli?",
+  /*
+  Arxivdagi o'zbekcha savollar:
+  "Qaysi hujjatlar voyaga yetmaganlarning huquqiy maqomiga taalluqli?",
+  "Qaysi normalar fuqarolik holati dalolatnomalarini ro'yxatdan o'tkazishni tartibga soladi?",
+  "Bazadagi qaysi moddalar fuqarolarning tadbirkorlik faoliyati bilan bog'liq?",
+  "Qaysi hujjatlar tovar belgisi va xizmat ko'rsatish belgisini tartibga soladi?",
+  "Qaysi normalar yuridik shaxsning firma nomiga taalluqli?",
+  "Qaysi moddalar masofaviy savdoda iste'molchilarning huquqlari bilan bog'liq?",
+  "Qaysi hujjatlar O'zbekistonda elektron savdoni tartibga soladi?",
+  "Qaysi normalar shaxsga doir ma'lumotlarni himoya qilishga taalluqli?",
+  "Qaysi moddalar moliyaviy xizmatlar reklamasi bilan bog'liq?",
+  "Qaysi hujjatlar bank faoliyatini tartibga soladi?",
+  "Qaysi normalar ayrim faoliyat turlarini litsenziyalashga taalluqli?",
+  "Qaysi moddalar elektron tijoratni soliqqa tortish bilan bog'liq?",
+  "Qaysi normalar mehnat shartnomasi va uni bekor qilishni tartibga soladi?",
+  "Qaysi moddalar masofaviy ish va platforma bandligiga taalluqli?",
+  "Qaysi hujjatlar intellektual mulkni himoya qilishni tartibga soladi?",
+  "Qaysi normalar dasturiy ta'minotga mualliflik huquqlariga taalluqli?",
+  "Qaysi moddalar noturar joy ijara shartnomasini tartibga soladi?",
+  "Qaysi normalar ishonchnoma va vakillik bilan bog'liq?",
+  "Qaysi hujjatlar notarial tasdiqlashni talab qiladigan bitimlarni tartibga soladi?",
+  "Qaysi moddalar qonun bo'yicha va vasiyat bo'yicha merosga taalluqli?",
+  "Bazadagi qaysi normalar nikoh shartnomasiga taalluqli?",
+  "Qaysi hujjatlar aliment majburiyatlarini tartibga soladi?",
+  "Qaysi moddalar yer uchastkasiga mulk huquqiga taalluqli?",
+  "Qaysi normalar qurilish va obyektlarni foydalanishga topshirishni tartibga soladi?",
+  "Qaysi hujjatlar korxonalarga qo'yiladigan ekologik talablarga taalluqli?",
+  "Qaysi moddalar farmatsevtika faoliyati va dori vositalari muomalasini tartibga soladi?",
+  "Qaysi normalar xususiy klinikaning tibbiy litsenziyasi bilan bog'liq?",
+  "Qaysi hujjatlar ta'lim muassasalari faoliyatini tartibga soladi?",
+  "Qaysi moddalar ta'lim tashkilotlarining davlat akkreditatsiyasiga taalluqli?",
+  "Qaysi normalar davlat xaridlari va natijalarni shikoyat qilishga taalluqli?",
+  "Qaysi hujjatlar valyuta operatsiyalari va chet elga o'tkazmalarni tartibga soladi?",
+  "Qaysi moddalar vaqtincha olib kirishning bojxona rasmiylashtiruvi bilan bog'liq?",
+  "Bazadagi qaysi normalar tashqi iqtisodiy faoliyatga taalluqli?",
+  "Qaysi hujjatlar yuridik shaxsning ishbilarmonlik obro'sini himoya qilishni tartibga soladi?",
+  "Qaysi moddalar g'irrom raqobatga taalluqli?",
+  "Qaysi normalar reklama va ofertada ma'lumotlarni oshkor qilishni tartibga soladi?",
+  "Qaysi hujjatlar chet elliklarning mehnat faoliyati huquqlariga taalluqli?",
+  "Qaysi moddalar davlat mulkini ijaraga berishni tartibga soladi?",
+  "Qaysi normalar davlat-xususiy sheriklikka taalluqli?",
+  "Qaysi hujjatlar mikromoliya tashkilotlari faoliyatini tartibga soladi?",
+  "Qaysi moddalar elektron hujjat aylanishi va elektron imzoga taalluqli?",
+  "Qaysi normalar ma'lumotlarni saqlash va transchegaraviy uzatish bilan bog'liq?",
+  "Qaysi hujjatlar filial va vakolatxonalar tashkil etilishini tartibga soladi?",
+  "Qaysi moddalar fuqarolik huquqining umumiy qoidalariga taalluqli?",
+  "Qaysi normalar ta'sis hujjatlariga o'zgartirish kiritish tartibini tartibga soladi?",
+  "Bazadagi qaysi hujjatlar UP-110 bilan bog'liq?",
+  "Yuridik shaxslarni ro'yxatdan o'tkazish, qayta tashkil etish va tugatish bo'yicha aniq moddalarni ko'rsat.",
+  */
+]
+
+const analyzerExamplesUz = [
   {
-    title: "Законопроект о свободной продаже лекарств",
-    text: "Аптеки и онлайн-площадки вправе реализовывать любые лекарственные средства без лицензии и без ограничения по рецептурному режиму.",
+    title: "Kompaniyalarni manzilsiz ro'yxatdan o'tkazish haqidagi qonun loyihasi",
+    text: "Yuridik shaxs yuridik manzili ko'rsatilmasdan, ta'sischilar to'g'risidagi ma'lumotlarsiz va taqdim etilgan hujjatlarning ishonchliligini majburiy tekshirmasdan ro'yxatdan o'tkazilishi mumkin.",
   },
   {
-    title: "Законопроект о деятельности частных клиник без лицензии",
-    text: "Медицинские организации вправе оказывать любые виды медицинской помощи без получения лицензии при наличии у них помещения и базового оборудования.",
+    title: "MChJni soddalashtirilgan tartibda tugatish haqidagi qonun loyihasi",
+    text: "Mas'uliyati cheklangan jamiyat kreditorlarni xabardor qilmasdan va tugatish to'g'risidagi ma'lumotlarni e'lon qilmasdan bitta ishtirokchining arizasi asosida tugatilishi mumkin.",
   },
   {
-    title: "Законопроект о рекламе лекарств без ограничений",
-    text: "Реклама лекарственных средств допускается без предупреждений, без раскрытия побочных эффектов и без ограничений для несовершеннолетних.",
+    title: "Davlat ro'yxatidan o'tkazmasdan nikoh haqidagi qonun loyihasi",
+    text: "Erkak va ayolning birga yashashi ZAGS organlarida majburiy davlat ro'yxatidan o'tkazilmasdan nikoh haqiqiy deb e'tirof etiladi.",
   },
   {
-    title: "Законопроект об открытии школы без аккредитации",
-    text: "Частная образовательная организация может осуществлять обучение и выдавать документы государственного образца без лицензии и аккредитации.",
+    title: "Sudsiz muomala layoqatini cheklash haqidagi qonun loyihasi",
+    text: "Mahalliy o'zini o'zi boshqarish organlari qo'shnilar va qarindoshlarning shikoyatlari asosida fuqaroni mustaqil ravishda muomala layoqati cheklangan deb topishga haqli.",
   },
   {
-    title: "Законопроект о закрытом доступе к образованию",
-    text: "Образовательные учреждения вправе отказывать в приеме учащимся по признаку места жительства, социального положения и происхождения родителей.",
+    title: "Oila roziligisiz vasiy tayinlash haqidagi qonun loyihasi",
+    text: "Voyaga yetmaganga vasiy yaqin qarindoshlarning fikrini inobatga olmasdan va vasiy yashash sharoitlarini tekshirmasdan vasiylik organi tomonidan tayinlanishi mumkin.",
   },
   {
-    title: "Законопроект о валютных переводах без контроля",
-    text: "Резиденты вправе свободно переводить неограниченные суммы за границу без идентификации операции, подтверждения оснований и финансового мониторинга.",
+    title: "Vasiylik ostidagi shaxs mulkini tasarruf etish haqidagi qonun loyihasi",
+    text: "Vasiy vakolatli organlarning oldindan ruxsatisiz va vasiylik ostidagi shaxs manfaatlarini inobatga olmasdan uning mol-mulkini sotishga haqli.",
   },
   {
-    title: "Законопроект о банковских услугах без лицензии",
-    text: "Любая коммерческая организация вправе принимать вклады населения, выдавать кредиты и открывать расчетные счета без банковской лицензии.",
+    title: "Voyaga yetmaganlar ko'chmas mulkini sotish haqidagi qonun loyihasi",
+    text: "Voyaga yetmaganlarga tegishli turar joylar davlatning qo'shimcha nazoratisiz qonuniy vakilning xohishiga ko'ra begonalashtirilishi mumkin.",
   },
   {
-    title: "Законопроект о микрозаймах без лимитов",
-    text: "Микрофинансовые организации вправе устанавливать любые процентные ставки, штрафы и способы взыскания задолженности без специальных ограничений.",
+    title: "14 yoshdan to'liq muomala layoqati haqidagi qonun loyihasi",
+    text: "14 yoshga to'lgan fuqarolar to'liq muomala layoqatiga ega deb e'tirof etiladi va ota-onasining roziligisiz har qanday bitimlarni tuzish, kredit olish hamda mol-mulkni begonalashtirishga haqli.",
   },
-  {
-    title: "Законопроект о блокировке счетов без решения суда",
-    text: "Банки и платежные системы вправе блокировать денежные средства клиентов по внутренним подозрениям без судебного акта и без обязательного уведомления клиента.",
-  },
-  {
-    title: "Законопроект о приватизации земли без аукциона",
-    text: "Государственные земельные участки могут передаваться в собственность частным компаниям без аукциона, публичного конкурса и раскрытия условий сделки.",
-  },
-  {
-    title: "Законопроект о строительстве без разрешения",
-    text: "Застройщик вправе начинать строительство объектов капитального строительства без проектной документации, экспертизы и разрешения на строительство.",
-  },
-  {
-    title: "Законопроект о вводе объекта без проверки безопасности",
-    text: "Объект строительства может вводиться в эксплуатацию без проверки соответствия пожарным, санитарным и техническим требованиям.",
-  },
-  {
-    title: "Законопроект об отказе от экологической экспертизы",
-    text: "Промышленные предприятия вправе запускать производство без экологической экспертизы, если проект признан экономически важным для региона.",
-  },
-  {
-    title: "Законопроект о выбросах без отчетности",
-    text: "Предприятия могут осуществлять выбросы загрязняющих веществ без ведения учета и представления отчетности, если объем производства не превышает внутренние нормативы компании.",
-  },
-  {
-    title: "Законопроект о свободном использовании товарных знаков",
-    text: "Любое лицо вправе использовать зарегистрированный товарный знак в рекламе и на упаковке товара, если использование не вводит потребителя в заблуждение по мнению самого пользователя.",
-  },
-  {
-    title: "Законопроект об отказе от охраны авторских прав на софт",
-    text: "Программное обеспечение, созданное на территории Узбекистана, не подлежит охране авторским правом после первой публикации в сети Интернет.",
-  },
-  {
-    title: "Законопроект о принудительной передаче исходного кода",
-    text: "Разработчики программного обеспечения обязаны безвозмездно передавать исходный код государственным органам по первому требованию без судебного контроля.",
-  },
-  {
-    title: "Законопроект о госзакупках без конкурса",
-    text: "Государственные заказчики вправе заключать договоры с любым поставщиком без тендера, если закупка признана срочной по внутреннему решению заказчика.",
-  },
-  {
-    title: "Законопроект о запрете обжалования закупки",
-    text: "Участники государственных закупок не вправе обжаловать действия комиссии, если решение комиссии принято большинством голосов.",
-  },
-  {
-    title: "Законопроект о таможенном ввозе без декларирования",
-    text: "Импорт товаров для коммерческой деятельности допускается без обязательного декларирования, если стоимость одной партии не превышает лимит, установленный самим импортером.",
-  },
-  {
-    title: "Законопроект о ввозе лекарств без сертификации",
-    text: "Лекарственные препараты могут ввозиться на территорию страны без государственной регистрации и подтверждения качества, если они закуплены у иностранного производителя напрямую.",
-  },
-  {
-    title: "Законопроект о деятельности филиала без регистрации",
-    text: "Иностранная компания вправе открыть филиал и вести коммерческую деятельность без отдельной государственной регистрации в Узбекистане.",
-  },
-  {
-    title: "Законопроект о свободной передаче доли в ООО",
-    text: "Участник общества вправе продать свою долю третьему лицу без уведомления других участников и без соблюдения преимущественного права покупки.",
-  },
-  {
-    title: "Законопроект о необязательности устава",
-    text: "Юридическое лицо вправе действовать без утвержденного устава, если основные правила деятельности содержатся во внутреннем соглашении участников.",
-  },
-  {
-    title: "Законопроект о смене директора без решения участников",
-    text: "Исполнительный директор общества может быть назначен и освобожден по решению любого участника, независимо от размера его доли.",
-  },
-  {
-    title: "Законопроект о полной конфиденциальности бенефициаров",
-    text: "Сведения о конечных бенефициарных владельцах юридического лица не подлежат раскрытию государственным органам и кредитным организациям.",
-  },
-  {
-    title: "Законопроект о рекламе, ориентированной на детей",
-    text: "Реклама сладостей, азартных игр и финансовых услуг может свободно распространяться среди несовершеннолетних без специальных ограничений.",
-  },
-  {
-    title: "Законопроект о недобросовестном сравнении конкурентов",
-    text: "Рекламодатель вправе использовать в рекламе любые сравнения с конкурентами без подтверждения достоверности таких сведений.",
-  },
-  {
-    title: "Законопроект о полной свободе оферты на маркетплейсе",
-    text: "Маркетплейс вправе в одностороннем порядке изменять цену товара после оформления заказа потребителем и не уведомлять его до момента оплаты.",
-  },
-  {
-    title: "Законопроект о хранении данных пользователей бессрочно",
-    text: "Операторы цифровых сервисов вправе бессрочно хранить все пользовательские данные, историю переписки и геолокацию без права пользователя требовать удаления информации.",
-  },
-  {
-    title: "Законопроект об электронной подписи без идентификации",
-    text: "Электронная подпись может выдаваться дистанционно без подтверждения личности заявителя и без проверки принадлежности номера телефона или электронной почты.",
-  },
-  {
-    title: "Законопроект об иностранной трудовой деятельности без разрешения",
-    text: "Иностранные граждане вправе работать на территории страны без разрешения на трудовую деятельность и без уведомления уполномоченных органов.",
-  },
-  {
-    title: "Законопроект об аренде госимущества без оценки",
-    text: "Государственное имущество может передаваться в долгосрочную аренду без независимой оценки стоимости и без проведения конкурентных процедур.",
-  },
+  /*
+  Arxivdagi o'zbekcha analizator кейслари:
+  - Litsenziyasiz kriptovalyuta savdosi haqidagi qonun loyihasi
+  - Xavflarni oshkor qilmasdan moliyaviy xizmatlarni reklama qilish haqidagi qonun loyihasi
+  - Roziliksiz shaxsga doir ma'lumotlarni yig'ish haqidagi qonun loyihasi
+  - Ma'lumotlarni cheklovsiz transchegaraviy uzatish haqidagi qonun loyihasi
+  - Iste'molchiga ma'lumot bermaslik haqidagi qonun loyihasi
+  - Masofaviy savdoda pulni qaytarmaslik haqidagi qonun loyihasi
+  - Muddatsiz sinov muddati haqidagi qonun loyihasi
+  - Haq to'lanmaydigan platforma bandligi haqidagi qonun loyihasi
+  - Kasallik varaqasi to'lovlarini taqiqlash haqidagi qonun loyihasi
+  - Qo'shimcha ishga to'liq erkin jalb qilish haqidagi qonun loyihasi
+  - Xususiy kompaniyalarda kasaba uyushmalarini taqiqlash haqidagi qonun loyihasi
+  - Xabarnomasiz bir tomonlama nikohni bekor qilish haqidagi qonun loyihasi
+  - Bolaga aliment to'lashni rad etish haqidagi qonun loyihasi
+  - Dori vositalarini erkin sotish haqidagi qonun loyihasi
+  - Xususiy klinikalar faoliyatini litsenziyasiz yuritish haqidagi qonun loyihasi
+  - Dori reklamasi uchun cheklovlarsiz haqidagi qonun loyihasi
+  - Akkreditatsiyasiz maktab ochish haqidagi qonun loyihasi
+  - Ta'limga yopiq kirish haqidagi qonun loyihasi
+  - Nazoratsiz valyuta o'tkazmalari haqidagi qonun loyihasi
+  - Litsenziyasiz bank xizmatlari haqidagi qonun loyihasi
+  - Cheklovsiz mikrozayomlar haqidagi qonun loyihasi
+  - Sud qarorisiz hisoblarni bloklash haqidagi qonun loyihasi
+  - Auksionsiz yer xususiylashtirish haqidagi qonun loyihasi
+  - Ruxsatsiz qurilish haqidagi qonun loyihasi
+  - Xavfsizlik tekshiruvisiz obyektni foydalanishga topshirish haqidagi qonun loyihasi
+  - Ekologik ekspertizadan voz kechish haqidagi qonun loyihasi
+  - Hisobotsiz chiqindilar haqidagi qonun loyihasi
+  - Tovar belgilaridan erkin foydalanish haqidagi qonun loyihasi
+  - Dasturiy ta'minotga mualliflik huquqi himoyasidan voz kechish haqidagi qonun loyihasi
+  - Boshlang'ich kodni majburiy topshirish haqidagi qonun loyihasi
+  - Tanlovsiz davlat xaridlari haqidagi qonun loyihasi
+  - Davlat xaridini shikoyat qilishni taqiqlash haqidagi qonun loyihasi
+  - Deklaratsiyasiz bojxona olib kirish haqidagi qonun loyihasi
+  - Dori vositalarini sertifikatsiyasiz olib kirish haqidagi qonun loyihasi
+  - Filialni ro'yxatdan o'tkazmasdan faoliyat yuritish haqidagi qonun loyihasi
+  - MChJ ulushini erkin o'tkazish haqidagi qonun loyihasi
+  - Ustav majburiy emasligi haqidagi qonun loyihasi
+  - Ishtirokchilar qarorisiz direktorni almashtirish haqidagi qonun loyihasi
+  - Benefisiarlar to'liq maxfiyligi haqidagi qonun loyihasi
+  - Bolalarga yo'naltirilgan reklama haqidagi qonun loyihasi
+  - Raqobatchilarni g'irrom taqqoslash haqidagi qonun loyihasi
+  - Marketpleys ofertasining to'liq erkinligi haqidagi qonun loyihasi
+  - Foydalanuvchi ma'lumotlarini muddatsiz saqlash haqidagi qonun loyihasi
+  - Identifikatsiyasiz elektron imzo haqidagi qonun loyihasi
+  - Ruxsatsiz chet elliklarning mehnat faoliyati haqidagi qonun loyihasi
+  - Baholashsiz davlat mulkini ijaraga berish haqidagi qonun loyihasi
+  */
 ]
 
 export const QUESTION_BANK = {
@@ -281,8 +294,8 @@ export const QUESTION_BANK = {
     analyzer: analyzerExamplesRu,
   },
   uz: {
-    assistant: assistantQuestionsRu,
-    analyzer: analyzerExamplesRu,
+    assistant: assistantQuestionsUz,
+    analyzer: analyzerExamplesUz,
   },
 }
 

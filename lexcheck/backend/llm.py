@@ -20,10 +20,15 @@ OLLAMA_MODEL          = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
 OLLAMA_CHAT_MODEL     = os.getenv("OLLAMA_CHAT_MODEL", OLLAMA_MODEL)
 OLLAMA_ANALYZE_MODEL  = os.getenv("OLLAMA_ANALYZE_MODEL", OLLAMA_MODEL)
 OLLAMA_NUM_CTX        = int(os.getenv("OLLAMA_NUM_CTX", "2048"))
+OLLAMA_CHAT_NUM_CTX   = int(os.getenv("OLLAMA_CHAT_NUM_CTX", str(OLLAMA_NUM_CTX)))
+OLLAMA_ANALYZE_NUM_CTX = int(os.getenv("OLLAMA_ANALYZE_NUM_CTX", str(OLLAMA_NUM_CTX)))
 OLLAMA_READ_TIMEOUT   = float(os.getenv("OLLAMA_READ_TIMEOUT", "420"))
 OLLAMA_WRITE_TIMEOUT  = float(os.getenv("OLLAMA_WRITE_TIMEOUT", "60"))
 OLLAMA_RETRY_NUM_CTX  = int(os.getenv("OLLAMA_RETRY_NUM_CTX", "1536"))
 OLLAMA_RETRY_MAX_TOKENS = int(os.getenv("OLLAMA_RETRY_MAX_TOKENS", "256"))
+OLLAMA_KEEP_ALIVE     = os.getenv("OLLAMA_KEEP_ALIVE", "15m").strip()
+OLLAMA_NUM_THREAD     = int(os.getenv("OLLAMA_NUM_THREAD", "0"))
+OLLAMA_NUM_BATCH      = int(os.getenv("OLLAMA_NUM_BATCH", "0"))
 
 ACTIVE_CHAT_MODEL    = OLLAMA_CHAT_MODEL if PROVIDER == "ollama" else ANTHROPIC_CHAT_MODEL
 ACTIVE_ANALYZE_MODEL = OLLAMA_ANALYZE_MODEL if PROVIDER == "ollama" else ANTHROPIC_ANALYZE_MODEL
@@ -40,6 +45,34 @@ async def chat_with_meta(system: str, messages: list[dict], task: str = "chat") 
     if PROVIDER == "ollama":
         return await _ollama(system, messages, task=task)
     return await _anthropic(system, messages, task=task)
+
+
+async def warmup() -> None:
+    if PROVIDER != "ollama":
+        return
+
+    timeout = httpx.Timeout(connect=10.0, read=60.0, write=30.0, pool=10.0)
+    body = {
+        "model": OLLAMA_CHAT_MODEL,
+        "messages": [{"role": "user", "content": "warmup"}],
+        "stream": False,
+        "keep_alive": OLLAMA_KEEP_ALIVE or None,
+        "options": {
+            "temperature": 0.0,
+            "num_ctx": max(512, min(OLLAMA_CHAT_NUM_CTX, 1024)),
+            "num_predict": 1,
+        },
+    }
+    if OLLAMA_NUM_THREAD > 0:
+        body["options"]["num_thread"] = OLLAMA_NUM_THREAD
+    if OLLAMA_NUM_BATCH > 0:
+        body["options"]["num_batch"] = OLLAMA_NUM_BATCH
+
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            await client.post(f"{OLLAMA_URL}/api/chat", json=body)
+    except Exception:
+        return
 
 
 # ── Providers ─────────────────────────────────────────────────────────────────
@@ -74,6 +107,7 @@ async def _anthropic(system: str, messages: list[dict], task: str = "chat") -> d
 async def _ollama(system: str, messages: list[dict], task: str = "chat") -> dict:
     model = OLLAMA_CHAT_MODEL if task == "chat" else OLLAMA_ANALYZE_MODEL
     max_tokens = CHAT_MAX_TOKENS if task == "chat" else ANALYZE_MAX_TOKENS
+    base_num_ctx = OLLAMA_CHAT_NUM_CTX if task == "chat" else OLLAMA_ANALYZE_NUM_CTX
     timeout = httpx.Timeout(connect=10.0, read=OLLAMA_READ_TIMEOUT, write=OLLAMA_WRITE_TIMEOUT, pool=10.0)
     async with httpx.AsyncClient(timeout=timeout) as client:
         try:
@@ -82,6 +116,7 @@ async def _ollama(system: str, messages: list[dict], task: str = "chat") -> dict
                 model=model,
                 system=system,
                 messages=messages,
+                base_num_ctx=base_num_ctx,
                 max_tokens=max_tokens,
             )
         except httpx.ConnectError:
@@ -94,20 +129,33 @@ async def _ollama(system: str, messages: list[dict], task: str = "chat") -> dict
             raise HTTPException(500, f"Ollama error: {type(e).__name__}: {e}")
 
 
-async def _ollama_single_model(client: httpx.AsyncClient, model: str, system: str, messages: list[dict], max_tokens: int) -> dict:
+async def _ollama_single_model(
+    client: httpx.AsyncClient,
+    model: str,
+    system: str,
+    messages: list[dict],
+    base_num_ctx: int,
+    max_tokens: int,
+) -> dict:
     last_error = None
-    profiles = [(OLLAMA_NUM_CTX, max_tokens)]
-    retry_ctx = min(OLLAMA_NUM_CTX, OLLAMA_RETRY_NUM_CTX)
+    profiles = [(base_num_ctx, max_tokens)]
+    retry_ctx = min(base_num_ctx, OLLAMA_RETRY_NUM_CTX)
     retry_tokens = min(max_tokens, OLLAMA_RETRY_MAX_TOKENS)
     if (retry_ctx, retry_tokens) != profiles[0]:
         profiles.append((retry_ctx, retry_tokens))
 
     for num_ctx, num_predict in profiles:
+        options = {"temperature": 0.1, "num_ctx": num_ctx, "num_predict": num_predict}
+        if OLLAMA_NUM_THREAD > 0:
+            options["num_thread"] = OLLAMA_NUM_THREAD
+        if OLLAMA_NUM_BATCH > 0:
+            options["num_batch"] = OLLAMA_NUM_BATCH
         body = {
             "model": model,
             "messages": [{"role": "system", "content": system}] + messages,
             "stream": False,
-            "options": {"temperature": 0.1, "num_ctx": num_ctx, "num_predict": num_predict},
+            "keep_alive": OLLAMA_KEEP_ALIVE or None,
+            "options": options,
         }
         try:
             request = client.post(f"{OLLAMA_URL}/api/chat", json=body)

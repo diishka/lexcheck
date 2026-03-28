@@ -6,32 +6,33 @@ PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 APP_DIR="$PROJECT_DIR/lexcheck"
 DEFAULT_NODE_BIN="$HOME/.nvm/versions/node/v24.14.0/bin"
 
+# Подключаем Node если есть
 if [ -d "$DEFAULT_NODE_BIN" ]; then
   export PATH="$DEFAULT_NODE_BIN:$PATH"
 fi
 
-command -v konsole >/dev/null || { echo "konsole not found"; exit 1; }
 command -v npm >/dev/null || { echo "npm not found"; exit 1; }
+command -v python >/dev/null || { echo "python not found"; exit 1; }
 
-konsole -p tabtitle="Backend" -e bash -ic "
-cd \"$APP_DIR/backend\" || exit 1
-set +e
-./venv/bin/python -m uvicorn main:app --host 127.0.0.1 --port 8000 --reload
-status=\$?
-echo
-echo \"Backend stopped with code \$status\"
-exec bash
-" &
+echo "Starting backend..."
+(
+  cd "$APP_DIR/backend" || exit 1
+  ./venv/bin/python -m uvicorn main:app --host 127.0.0.1 --port 8000 --reload
+) &
 
-konsole -p tabtitle="Frontend" -e bash -ic "
-cd \"$APP_DIR/frontend\" || exit 1
-set +e
-npm run dev
-status=\$?
-echo
-echo \"Frontend stopped with code \$status\"
-exec bash
-" &
+BACKEND_PID=$!
+
+echo "Starting frontend..."
+(
+  cd "$APP_DIR/frontend" || exit 1
+  npm run dev
+) &
+
+FRONTEND_PID=$!
 
 echo "App is starting..."
-echo "Open: http://localhost:3000"
+echo "Frontend: http://localhost:3000"
+echo "Backend:  http://127.0.0.1:8000"
+
+# Ждём завершения
+wait $BACKEND_PID $FRONTEND_PID

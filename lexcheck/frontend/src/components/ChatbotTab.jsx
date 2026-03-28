@@ -42,7 +42,7 @@ export default function ChatbotTab({ lang, t }) {
   const [loading, setLoading] = useState(false)
   const [lawCtx, setLawCtx] = useState(() => storedChat?.lawCtx || '')
   const [showCtx, setShowCtx] = useState(() => Boolean(storedChat?.showCtx))
-  const [topK, setTopK] = useState(() => Number(storedChat?.topK) || 3)
+  const [topK, setTopK] = useState(() => Number(storedChat?.topK) || 2)
   const [pendingStartedAt, setPendingStartedAt] = useState(null)
   const [liveElapsedMs, setLiveElapsedMs] = useState(0)
   const [quickQuestions, setQuickQuestions] = useState(() => pickRandomItems(getAssistantQuestions(lang), 5))
@@ -218,7 +218,7 @@ export default function ChatbotTab({ lang, t }) {
         <div className="sidebar__section">
           <div className="label label--spaced">{t.topKLabel || 'Context size'}</div>
           <div className="chat__topk">
-            {[3, 5, 8, 12].map(k => (
+            {[2, 3, 5, 8, 12].map(k => (
               <button
                 key={k}
                 onClick={() => setTopK(k)}

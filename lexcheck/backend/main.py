@@ -16,12 +16,17 @@ from typing import Optional
 
 def _detect_lang(text: str) -> str:
     """Detect language from character distribution: ru / uz / en."""
+    normalized = (text or "").lower()
     cyrillic = len(re.findall(r'[а-яёА-ЯЁ]', text))
     latin    = len(re.findall(r'[a-zA-Z]', text))
     uzbek    = len(re.findall(r'[ʻʼoOgG][ʻʼ]|[oO]ʻ|[gG]ʻ', text))
+    uzbek_words = len(re.findall(
+        r"\b(qanday|qaysi|uchun|bilan|qonun|modda|hujjat|javob|haqida|bo'yicha|mavjud|kerak|mumkin|emas|bor|yo'q|shaxs|fuqaro|davlat|tadbirkorlik)\b",
+        normalized,
+    ))
     if cyrillic > latin * 0.3 and cyrillic > 3:
         return "ru"
-    if uzbek > 0:
+    if uzbek > 0 or uzbek_words >= 2:
         return "uz"
     if latin > cyrillic * 2 and latin > 3:
         return "en"
@@ -36,6 +41,7 @@ from pydantic import BaseModel
 
 import db
 import llm
+import cache_store
 
 DB_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/lexai")
 CHAT_TOP_K = int(os.getenv("CHAT_TOP_K", "3"))
@@ -48,8 +54,12 @@ CHAT_REPLY_CACHE_TTL = int(os.getenv("CHAT_REPLY_CACHE_TTL", "120"))
 CHAT_REPLY_CACHE_MAX = int(os.getenv("CHAT_REPLY_CACHE_MAX", "200"))
 ANALYZE_REPLY_CACHE_TTL = int(os.getenv("ANALYZE_REPLY_CACHE_TTL", "300"))
 ANALYZE_REPLY_CACHE_MAX = int(os.getenv("ANALYZE_REPLY_CACHE_MAX", "100"))
+PERSISTENT_CHAT_CACHE_TTL = int(os.getenv("PERSISTENT_CHAT_CACHE_TTL", "43200"))
+PERSISTENT_ANALYZE_CACHE_TTL = int(os.getenv("PERSISTENT_ANALYZE_CACHE_TTL", "43200"))
 LAW_CONTEXT_TITLE_CHARS = int(os.getenv("LAW_CONTEXT_TITLE_CHARS", "180"))
 ANALYZE_TOP_K = int(os.getenv("ANALYZE_TOP_K", "3"))
+CHAT_CACHE_VERSION = os.getenv("CHAT_CACHE_VERSION", "3")
+ANALYZE_CACHE_VERSION = os.getenv("ANALYZE_CACHE_VERSION", "3")
 _chat_reply_cache: dict[str, tuple[float, str, str]] = {}
 _analyze_reply_cache: dict[str, tuple[float, dict]] = {}
 
@@ -59,6 +69,8 @@ _analyze_reply_cache: dict[str, tuple[float, dict]] = {}
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await db.connect(DB_URL)
+    cache_store.init()
+    asyncio.create_task(llm.warmup())
     print(
         f"✅ DB connected | LLM: {llm.PROVIDER} | "
         f"Chat: {llm.ACTIVE_CHAT_MODEL} | Analyze: {llm.ACTIVE_ANALYZE_MODEL}"
@@ -147,14 +159,22 @@ async def analyze(req: AnalyzeRequest):
         raise HTTPException(400, "Law text is required")
 
     top_k = max(1, min(req.top_k or ANALYZE_TOP_K, 8))
-    cache_key = _make_analyze_cache_key(req.title, req.text, top_k)
+    candidates = await db.get_candidate_laws(req.text + " " + req.title, top_k)
+    if not candidates:
+        raise HTTPException(404, "No laws found in database")
+    candidate_signature = _make_candidate_signature(candidates)
+    cache_key = _make_analyze_cache_key(req.title, req.text, top_k, candidate_signature)
     cached = _analyze_reply_cache.get(cache_key)
     if cached and (time.time() - cached[0]) < ANALYZE_REPLY_CACHE_TTL:
         return cached[1]
 
-    candidates = await db.get_candidate_laws(req.text + " " + req.title, top_k)
-    if not candidates:
-        raise HTTPException(404, "No laws found in database")
+    persistent_cached = cache_store.get("analyze", cache_key)
+    if persistent_cached:
+        result = persistent_cached["value"]
+        if len(_analyze_reply_cache) > ANALYZE_REPLY_CACHE_MAX:
+            _analyze_reply_cache.clear()
+        _analyze_reply_cache[cache_key] = (time.time(), result)
+        return result
 
     input_lang = _detect_lang(req.title + " " + req.text)
     input_lang_name = {"uz": "Uzbek", "ru": "Russian", "en": "English"}[input_lang]
@@ -176,8 +196,10 @@ async def analyze(req: AnalyzeRequest):
     try:
         raw = await llm.chat(system, [{"role": "user", "content": prompt}], task="analyze")
         analysis = _parse_json(raw)
+        analysis_from_llm = True
     except HTTPException:
         analysis = _build_analyze_fallback(candidates, input_lang)
+        analysis_from_llm = False
 
     result = {
         "analysis": analysis,
@@ -190,6 +212,14 @@ async def analyze(req: AnalyzeRequest):
     if len(_analyze_reply_cache) > ANALYZE_REPLY_CACHE_MAX:
         _analyze_reply_cache.clear()
     _analyze_reply_cache[cache_key] = (time.time(), result)
+    if analysis_from_llm:
+        cache_store.set(
+            "analyze",
+            cache_key,
+            result,
+            PERSISTENT_ANALYZE_CACHE_TTL,
+            meta={"model": llm.ACTIVE_ANALYZE_MODEL},
+        )
     return result
 
 
@@ -215,6 +245,7 @@ async def chat(req: ChatRequest):
         db.get_history(session_id, limit=CHAT_HISTORY_LIMIT),
         db.get_candidate_laws(req.message + " " + (req.law_context or ""), top_k, dataset=dataset),
     )
+    candidate_signature = _make_candidate_signature(candidates)
     laws_context = _build_law_context(
         candidates,
         query_text=req.message + " " + (req.law_context or ""),
@@ -246,15 +277,15 @@ async def chat(req: ChatRequest):
     )
     missing_article_instruction = {
         "ru": (
-            "The retrieved documents in the database do not have a real article breakdown. "
+            "Within the retrieved documents for this query, no real article breakdown is available. "
             "State this clearly and refer to document codes and titles only."
         ),
         "uz": (
-            "Bazadan topilgan hujjatlarda haqiqiy modda bo'linishi yo'q. "
+            "Ushbu so'rov uchun tanlangan hujjatlar orasida haqiqiy modda bo'linishi topilmadi. "
             "Buni aniq ayting va faqat hujjat kodlari hamda sarlavhalariga tayaning."
         ),
         "en": (
-            "The retrieved documents in the database do not have a real article breakdown. "
+            "Within the retrieved documents for this query, no real article breakdown is available. "
             "State this clearly and refer to document codes and titles only."
         ),
     }[lang]
@@ -280,24 +311,42 @@ async def chat(req: ChatRequest):
         f"Retrieved laws:\n{laws_context}{law_block}"
     )
 
-    cache_key = _make_chat_cache_key(history, req.law_context, top_k, dataset)
+    cache_key = _make_chat_cache_key(history, req.law_context, top_k, dataset, candidate_signature)
     cached = _chat_reply_cache.get(cache_key)
     if cached and (time.time() - cached[0]) < CHAT_REPLY_CACHE_TTL:
         reply = _append_exact_sources(cached[1], candidates, req.message, lang)
         model_used = cached[2]
     else:
-        try:
-            llm_result = await llm.chat_with_meta(
-                system,
-                [{"role": m["role"], "content": m["content"]} for m in history],
-                task="chat",
-            )
-            reply = llm_result["content"]
-            model_used = llm_result["model"]
-            reply = _append_exact_sources(reply, candidates, req.message, lang)
-        except HTTPException:
-            reply = _build_chat_fallback(req.message, candidates, lang)
-            model_used = "database-fallback"
+        persistent_cached = cache_store.get("chat", cache_key)
+        if persistent_cached:
+            cached_value = persistent_cached["value"]
+            reply = _append_exact_sources(cached_value["reply"], candidates, req.message, lang)
+            model_used = cached_value.get("model") or persistent_cached["meta"].get("model") or "cache"
+        else:
+            if not req.law_context and _is_fast_lookup_query(req.message):
+                reply = _build_fast_lookup_reply(req.message, candidates, lang)
+                model_used = "database-fastpath"
+            else:
+                try:
+                    llm_result = await llm.chat_with_meta(
+                        system,
+                        [{"role": m["role"], "content": m["content"]} for m in history],
+                        task="chat",
+                    )
+                    reply = llm_result["content"]
+                    model_used = llm_result["model"]
+                    reply = await _ensure_reply_language(reply, lang)
+                    reply = _append_exact_sources(reply, candidates, req.message, lang)
+                    cache_store.set(
+                        "chat",
+                        cache_key,
+                        {"reply": reply, "model": model_used},
+                        PERSISTENT_CHAT_CACHE_TTL,
+                        meta={"model": model_used},
+                    )
+                except HTTPException:
+                    reply = _build_chat_fallback(req.message, candidates, lang)
+                    model_used = "database-fallback"
         if len(_chat_reply_cache) > CHAT_REPLY_CACHE_MAX:
             _chat_reply_cache.clear()
         _chat_reply_cache[cache_key] = (time.time(), reply, model_used)
@@ -423,6 +472,27 @@ def _select_articles_for_query(law: dict, query_text: str, limit: int) -> list[d
     return selected
 
 
+def _lookup_requests_articles(query_text: str) -> bool:
+    normalized = _normalize_text(query_text)
+    return any(
+        token in normalized
+        for token in (
+            "modda", "moddalar", "статья", "статьи", "статей",
+            "article", "articles", "норма", "нормы", "норм",
+        )
+    )
+
+
+def _is_fast_lookup_query(query_text: str) -> bool:
+    normalized = _normalize_text(query_text)
+    starters = ("qaysi", "qanday", "какие", "какой", "какая", "какое", "which", "what", "покажи", "show")
+    nouns = (
+        "modda", "moddalar", "hujjat", "hujjatlar", "normalar",
+        "стат", "документ", "норм", "article", "articles", "document", "documents", "law", "laws",
+    )
+    return any(normalized.startswith(prefix) for prefix in starters) and any(noun in normalized for noun in nouns)
+
+
 def _build_exact_sources(query_text: str, candidates: list[dict], lang: str, max_items: int = 8) -> list[str]:
     lines: list[str] = []
     no_breakdown_label = {
@@ -461,7 +531,7 @@ def _build_exact_sources(query_text: str, candidates: list[dict], lang: str, max
         article_list = ", ".join(group["articles"])
         lines.append(f"- {group['code']}: {article_list}")
 
-    if no_breakdown_codes:
+    if no_breakdown_codes and not lines:
         limited_codes = ", ".join(no_breakdown_codes[:max_items])
         if len(no_breakdown_codes) > max_items:
             limited_codes += ", ..."
@@ -496,6 +566,70 @@ def _append_exact_sources(reply: str, candidates: list[dict], query_text: str, l
     lines = _build_exact_sources(query_text, candidates, lang)
     block = "\n".join(lines) if lines else f"- {no_sources[lang]}"
     return f"{reply.rstrip()}\n\n{section_titles[lang]}:\n{block}"
+
+
+def _build_fast_lookup_reply(query_text: str, candidates: list[dict], lang: str) -> str:
+    if not candidates:
+        return {
+            "ru": "По базе не найдено релевантных документов для этого запроса.",
+            "uz": "Bazadan ushbu so'rov uchun mos hujjatlar topilmadi.",
+            "en": "No relevant documents were found in the database for this query.",
+        }[lang]
+
+    article_mode = _lookup_requests_articles(query_text)
+    relevant = candidates[:4]
+    section_title = {
+        "ru": "Найдено по базе",
+        "uz": "Bazadan topildi",
+        "en": "Found in database",
+    }[lang]
+    exact_intro = {
+        "ru": "По этому запросу найдены точные совпадения в базе.",
+        "uz": "Ushbu so'rov bo'yicha bazada aniq mos keladigan normalar topildi.",
+        "en": "Exact matches were found in the database for this query.",
+    }[lang]
+    no_article_intro = {
+        "ru": "По этому запросу найдены подходящие документы, но среди выбранных совпадений нет точной разбивки на статьи.",
+        "uz": "Ushbu so'rov bo'yicha mos hujjatlar topildi, ammo tanlangan mosliklarda aniq modda raqamlari yo'q.",
+        "en": "Relevant documents were found for this query, but the selected matches do not contain exact article breakdowns.",
+    }[lang]
+
+    lines = []
+    has_real_articles = False
+    for law in relevant:
+        title = _compact_text(_pick_field(law, "title"), 120)
+        category = law.get("category") or {
+            "ru": "Без категории",
+            "uz": "Bo'lim ko'rsatilmagan",
+            "en": "No category",
+        }[lang]
+        article_nums = [
+            article.get("article_num") or "-"
+            for article in _select_articles_for_query(law, query_text, 4)
+            if not _is_placeholder_article_num(article.get("article_num"))
+        ]
+        unique_articles = list(dict.fromkeys(article_nums))
+        if unique_articles:
+            has_real_articles = True
+            lines.append(f"- {law['code']} | {category} | {', '.join(unique_articles)}")
+        elif not article_mode:
+            lines.append(f"- {law['code']} | {category} | {title}")
+        else:
+            lines.append(f"- {law['code']} | {category} | {title}")
+
+    sources = _build_exact_sources(query_text, candidates, lang)
+    sources_title = {
+        "ru": "Источники",
+        "uz": "Manbalar",
+        "en": "Sources",
+    }[lang]
+
+    intro = exact_intro if (has_real_articles or not article_mode) else no_article_intro
+    return (
+        f"{intro}\n\n"
+        f"{section_title}:\n" + "\n".join(lines[:4]) +
+        f"\n\n{sources_title}:\n" + ("\n".join(sources) if sources else "-")
+    )
 
 
 def _build_chat_fallback(query_text: str, candidates: list[dict], lang: str) -> str:
@@ -607,23 +741,85 @@ def _build_analyze_fallback(candidates: list[dict], lang: str) -> dict:
     }
 
 
-def _make_chat_cache_key(history: list[dict], law_context: Optional[str], top_k: int, dataset: str) -> str:
+async def _ensure_reply_language(reply: str, target_lang: str) -> str:
+    if not reply.strip():
+        return reply
+
+    current_lang = _detect_lang(_strip_sources_block(reply))
+    if current_lang == target_lang:
+        return reply
+
+    target_lang_name = {"ru": "Russian", "uz": "Uzbek", "en": "English"}[target_lang]
+    system = (
+        "You are a legal text translator.\n"
+        f"Translate the answer to {target_lang_name} only.\n"
+        "Preserve law codes, article numbers, bullet structure, and legal citations exactly.\n"
+        "Do not add new facts. Do not omit any legal references.\n"
+        "Return only the translated answer text."
+    )
+    try:
+        return await llm.chat(
+            system,
+            [{"role": "user", "content": reply}],
+            task="chat",
+        )
+    except HTTPException:
+        return reply
+
+
+def _strip_sources_block(reply: str) -> str:
+    text = reply or ""
+    for marker in ("\n\nИсточники:", "\n\nManbalar:", "\n\nSources:"):
+        if marker in text:
+            return text.split(marker, 1)[0]
+    return text
+
+
+def _make_chat_cache_key(
+    history: list[dict],
+    law_context: Optional[str],
+    top_k: int,
+    dataset: str,
+    candidate_signature: str,
+) -> str:
     payload = {
+        "version": CHAT_CACHE_VERSION,
+        "model": llm.ACTIVE_CHAT_MODEL,
         "history": history,
         "law_context": (law_context or "")[:CHAT_LAW_CONTEXT_MAX_CHARS],
         "top_k": top_k,
         "dataset": dataset,
+        "candidate_signature": candidate_signature,
     }
     raw = json.dumps(payload, ensure_ascii=False, sort_keys=True)
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
-def _make_analyze_cache_key(title: str, text: str, top_k: int) -> str:
+def _make_analyze_cache_key(title: str, text: str, top_k: int, candidate_signature: str) -> str:
     payload = {
+        "version": ANALYZE_CACHE_VERSION,
+        "model": llm.ACTIVE_ANALYZE_MODEL,
         "title": title or "",
         "text": text or "",
         "top_k": top_k,
+        "candidate_signature": candidate_signature,
     }
+    raw = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _make_candidate_signature(candidates: list[dict]) -> str:
+    payload = []
+    for law in candidates[:8]:
+        articles = law.get("articles") or []
+        payload.append({
+            "code": law.get("code"),
+            "year": law.get("year"),
+            "articles": [
+                (article.get("article_num") or "").strip()
+                for article in articles[:4]
+            ],
+        })
     raw = json.dumps(payload, ensure_ascii=False, sort_keys=True)
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
