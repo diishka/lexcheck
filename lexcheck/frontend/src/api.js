@@ -29,7 +29,7 @@ function withQuery(path, params = {}) {
 export const api = {
   health:        ()           => req('/health'),
   getLaws:       (params={})  => req(withQuery('/laws', params)),
-  getLaw:        (code)       => req(`/laws/${encodeURIComponent(code)}`),
+  getLaw:        (code, params={}) => req(withQuery(`/laws/${encodeURIComponent(code)}`, params)),
   getCategories: ()           => req('/categories'),
   getCategoryStats: ()        => req('/categories/stats'),
   analyze:       (body)       => req('/analyze',          { method:'POST', body }),

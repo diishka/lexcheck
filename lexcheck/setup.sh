@@ -22,8 +22,12 @@ echo ""
 echo "1️⃣  Setting up PostgreSQL database..."
 sudo -u postgres psql -tc "SELECT 1 FROM pg_database WHERE datname = '$DB_NAME'" | grep -q 1 \
 || sudo -u postgres psql -c "CREATE DATABASE $DB_NAME;"
-sudo -u postgres psql -d "$DB_NAME" -f "$BACKEND_DIR/schema.sql"
-echo "   ✅ Database '$DB_NAME' ready"
+if sudo -u postgres psql -d "$DB_NAME" -tAc "SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'laws'" | grep -q 1; then
+  echo "   ✅ Database '$DB_NAME' already has tables"
+else
+  echo "   ℹ️  Database '$DB_NAME' created, but no laws were imported automatically"
+  echo "   ℹ️  Restore a real backup with: ./scripts/db_import.sh backups/<file>.dump"
+fi
 # ── 2. Backend ────────────────────────────────────────────────────────────────
 echo ""
 echo "2️⃣  Setting up Python backend..."

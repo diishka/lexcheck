@@ -16,11 +16,13 @@ _laws_summary_cache: Optional[str] = None
 _laws_summary_ts: float = 0.0
 _candidate_cache: dict[tuple[str, int, str], tuple[float, list[dict]]] = {}
 _chat_sessions: dict[str, dict] = {}
+_active_law_ids: list[int] = []
 CANDIDATE_CACHE_TTL = int(os.getenv("CANDIDATE_CACHE_TTL", "120"))
 CANDIDATE_CACHE_MAX = int(os.getenv("CANDIDATE_CACHE_MAX", "500"))
 CANDIDATE_ARTICLES_PER_LAW = int(os.getenv("CANDIDATE_ARTICLES_PER_LAW", "6"))
 UI_TITLE_MAX_CHARS = int(os.getenv("UI_TITLE_MAX_CHARS", "220"))
 UI_SUMMARY_MAX_CHARS = int(os.getenv("UI_SUMMARY_MAX_CHARS", "420"))
+ACTIVE_DOCUMENT_LIMIT = int(os.getenv("ACTIVE_DOCUMENT_LIMIT", "20"))
 CODE_TOKEN_RE = re.compile(r"[0-9A-Za-zА-Яа-яЁёЎўҚқҒғҲҳ]+(?:[-–—][0-9A-Za-zА-Яа-яЁёЎўҚқҒғҲҳ]+)+")
 LAW_CODE_NORM_SQL = (
     "regexp_replace("
@@ -49,6 +51,7 @@ async def connect(url: str) -> None:
     pool = await asyncpg.create_pool(url, min_size=1, max_size=10)
     await _ensure_runtime_indexes()
     await _ensure_schema12_seed_data()
+    await _load_active_law_ids()
 
 
 async def disconnect() -> None:
@@ -191,6 +194,14 @@ def _candidate_sort_key(law: dict, query_text: str) -> tuple:
 def _prioritize_candidates(candidates: list[dict], query_text: str, top_k: int) -> list[dict]:
     if not candidates:
         return []
+    code_tokens = {_normalize_lookup_text(token).replace(" ", "") for token in _extract_code_tokens(query_text)}
+    if code_tokens:
+        exact_code_matches = [
+            law for law in candidates
+            if _normalize_lookup_text(law.get("code") or "").replace(" ", "") in code_tokens
+        ]
+        if exact_code_matches:
+            return exact_code_matches[:top_k]
     ranked = sorted(candidates, key=lambda law: _candidate_sort_key(law, query_text), reverse=True)
     if _query_requests_articles(query_text):
         with_real_articles = [law for law in ranked if _law_has_real_articles(law)]
@@ -202,7 +213,20 @@ def _prioritize_candidates(candidates: list[dict], query_text: str, top_k: int) 
 def _dataset_filter_sql(alias: str, dataset: str) -> str:
     if dataset == ASSISTANT_DATASET_SCHEMA:
         return f"{alias}.code LIKE 'UZB-%'"
-    return f"{alias}.code NOT LIKE 'UZB-%'"
+    main_filter = f"{alias}.code NOT LIKE 'UZB-%'"
+    active_scope = _active_scope_sql(alias)
+    if active_scope != "TRUE":
+        return f"{main_filter} AND {active_scope}"
+    return main_filter
+
+
+def _active_scope_sql(alias: str) -> str:
+    if ACTIVE_DOCUMENT_LIMIT <= 0:
+        return "TRUE"
+    if not _active_law_ids:
+        return "FALSE"
+    ids = ", ".join(str(int(law_id)) for law_id in _active_law_ids)
+    return f"{alias}.id = ANY(ARRAY[{ids}]::int[])"
 
 
 async def get_candidate_laws(query_text: str, top_k: int = 5, dataset: str | None = None) -> list[dict]:
@@ -502,9 +526,10 @@ async def list_laws_page(
     search_text = (search or "").strip()
     category_filter = (category or "").strip()
     code_tokens = _extract_code_tokens(search_text)
+    active_filter = _active_scope_sql("l")
 
     if not search_text:
-        sql = """
+        sql = f"""
             SELECT
                 l.id,
                 l.code,
@@ -523,6 +548,7 @@ async def list_laws_page(
                 WHERE a_count.law_id = l.id
             ) ac ON TRUE
             WHERE ($1 = '' OR l.category = $1)
+              AND {active_filter}
             ORDER BY l.year DESC, l.code
             LIMIT $2 OFFSET $3
         """
@@ -547,6 +573,7 @@ async def list_laws_page(
                 FROM laws l
                 CROSS JOIN query
                 WHERE {LAW_CODE_NORM_SQL} = ANY(query.code_tokens)
+                  AND {active_filter}
 
                 UNION ALL
 
@@ -554,6 +581,7 @@ async def list_laws_page(
                 FROM laws l
                 CROSS JOIN query
                 WHERE l.code ILIKE query.pattern
+                  AND {active_filter}
 
                 UNION ALL
 
@@ -561,6 +589,7 @@ async def list_laws_page(
                 FROM laws l
                 CROSS JOIN query
                 WHERE l.category ILIKE query.pattern
+                  AND {active_filter}
 
                 UNION ALL
 
@@ -568,6 +597,7 @@ async def list_laws_page(
                 FROM laws l
                 CROSS JOIN query
                 WHERE {LAW_FTS_RU_SQL} @@ query.q_ru
+                  AND {active_filter}
 
                 UNION ALL
 
@@ -575,6 +605,7 @@ async def list_laws_page(
                 FROM laws l
                 CROSS JOIN query
                 WHERE {LAW_FTS_UZ_SQL} @@ query.q_simple
+                  AND {active_filter}
             ) hits
             GROUP BY hits.law_id
         ),
@@ -585,25 +616,31 @@ async def list_laws_page(
             FROM (
                 SELECT a.law_id, 6 AS rank
                 FROM law_articles a
+                JOIN laws l ON l.id = a.law_id
                 CROSS JOIN query
                 WHERE query.raw_search IS NOT NULL
                   AND a.article_num ILIKE query.pattern
+                  AND {active_filter}
 
                 UNION ALL
 
                 SELECT a.law_id, 4 AS rank
                 FROM law_articles a
+                JOIN laws l ON l.id = a.law_id
                 CROSS JOIN query
                 WHERE query.raw_search IS NOT NULL
                   AND {ARTICLE_FTS_RU_SQL} @@ query.q_ru
+                  AND {active_filter}
 
                 UNION ALL
 
                 SELECT a.law_id, 4 AS rank
                 FROM law_articles a
+                JOIN laws l ON l.id = a.law_id
                 CROSS JOIN query
                 WHERE query.raw_search IS NOT NULL
                   AND {ARTICLE_FTS_UZ_SQL} @@ query.q_simple
+                  AND {active_filter}
             ) hits
             GROUP BY hits.law_id
         ),
@@ -636,6 +673,7 @@ async def list_laws_page(
             ) ac ON TRUE
             JOIN matched_hits ON matched_hits.law_id = l.id
             WHERE ($3 = '' OR l.category = $3)
+              AND {active_filter}
         )
         SELECT
             m.id,
@@ -698,10 +736,12 @@ async def count_laws(category: str = None, search: str = None) -> int:
 
 
 async def get_law(code: str) -> Optional[dict]:
-    sql = """
+    active_filter = _active_scope_sql("laws")
+    sql = f"""
         SELECT id, code, title_ru, title_uz, category, year, summary_ru, summary_uz
         FROM laws
         WHERE code = $1
+          AND {active_filter}
         LIMIT 1
     """
     async with pool.acquire() as conn:
@@ -713,7 +753,8 @@ async def get_law(code: str) -> Optional[dict]:
 
 
 async def get_category_stats() -> list[dict]:
-    sql = """
+    active_filter = _active_scope_sql("l")
+    sql = f"""
         SELECT
             l.category,
             count(DISTINCT l.id) AS laws_count,
@@ -722,6 +763,7 @@ async def get_category_stats() -> list[dict]:
             max(l.year) AS max_year
         FROM laws l
         LEFT JOIN law_articles a ON a.law_id = l.id
+        WHERE {active_filter}
         GROUP BY l.category
         ORDER BY count(DISTINCT l.id) DESC, count(a.id) DESC, l.category
     """
@@ -731,7 +773,7 @@ async def get_category_stats() -> list[dict]:
 
 
 async def get_all_laws_summary() -> str:
-    sql = "SELECT code, title_ru, summary_ru FROM laws ORDER BY year DESC, code"
+    sql = f"SELECT code, title_ru, summary_ru FROM laws WHERE {_active_scope_sql('laws')} ORDER BY year DESC, code"
     async with pool.acquire() as conn:
         rows = await conn.fetch(sql)
     return "\n".join(f"[{r['code']}] {r['title_ru']}: {r['summary_ru']}" for r in rows)
@@ -748,7 +790,7 @@ async def get_all_laws_summary_cached(ttl_seconds: int = 300) -> str:
 
 
 async def get_categories() -> list[str]:
-    sql = "SELECT DISTINCT category FROM laws ORDER BY category"
+    sql = f"SELECT DISTINCT category FROM laws WHERE {_active_scope_sql('laws')} ORDER BY category"
     async with pool.acquire() as conn:
         rows = await conn.fetch(sql)
     return [r["category"] for r in rows]
@@ -798,6 +840,32 @@ async def _ensure_runtime_indexes() -> None:
     async with pool.acquire() as conn:
         for statement in statements:
             await conn.execute(statement)
+
+
+async def _load_active_law_ids() -> None:
+    global _active_law_ids
+    if ACTIVE_DOCUMENT_LIMIT <= 0:
+        _active_law_ids = []
+        return
+
+    sql = """
+        SELECT l.id
+        FROM laws l
+        LEFT JOIN law_articles a ON a.law_id = l.id
+        WHERE l.code NOT LIKE 'UZB-%'
+        GROUP BY l.id, l.year, l.code
+        ORDER BY
+            COUNT(*) FILTER (
+                WHERE lower(coalesce(a.article_num,'')) NOT IN ('full_text', 'full text', 'document_text', 'document text', '-', '')
+            ) DESC,
+            COUNT(a.id) DESC,
+            l.year DESC,
+            l.code
+        LIMIT $1
+    """
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(sql, ACTIVE_DOCUMENT_LIMIT)
+    _active_law_ids = [int(row["id"]) for row in rows]
 
 
 async def _ensure_schema12_seed_data() -> None:

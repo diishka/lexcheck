@@ -1,4 +1,21 @@
 const assistantQuestionsRu = [
+  "Мы открываем ООО. Что стоит проверить в базе перед регистрацией?",
+  "Компания закрывается. Что посмотреть по ликвидации и уведомлению кредиторов?",
+  "Несовершеннолетний хочет сам подписать договор. Какие нормы и статьи нам важны?",
+  "Опекун собирается продать имущество подопечного. Что нужно проверить заранее?",
+  "Хочу выдать представителю доверенность на сделку. Что из базы посмотреть сначала?",
+  "Учредители меняют устав и состав участников. Какие документы и статьи стоит проверить?",
+  "Нужно оформить опеку над гражданином. Какие нормы и статьи посмотреть в первую очередь?",
+  "Гражданина хотят признать ограниченно дееспособным. Какие нормы и статьи нужно проверить?",
+  "Нужно зарегистрировать акт гражданского состояния. Какие документы и статьи нам нужны?",
+  "Несовершеннолетний собирается распорядиться своим имуществом. Какие нормы стоит посмотреть?",
+  "Компания хочет провести реорганизацию. Какие документы и статьи проверить заранее?",
+  "Перед подготовкой гражданско-правового договора хочу понять базовые принципы. Что посмотреть в базе?",
+  "Нужно определить полномочия представителя по доверенности. Какие нормы и статьи важны?",
+  "Участник выходит из юридического лица. Какие документы и статьи стоит проверить?",
+  "Хотим оформить сделку через представителя. Что обязательно проверить по базе до подписания?",
+  /*
+  Архив русских вопросов:
   "Какие документы в базе регулируют регистрацию юридических лиц?",
   "Какие нормы относятся к реорганизации юридических лиц?",
   "Какие статьи связаны с ликвидацией юридических лиц?",
@@ -7,8 +24,6 @@ const assistantQuestionsRu = [
   "Покажи статьи по банкротству и санации юридических лиц.",
   "Какие нормы в базе связаны с опекой и попечительством?",
   "Какие статьи касаются ограничения дееспособности граждан?",
-  /*
-  Архив русских вопросов:
   "Какие документы относятся к правовому положению несовершеннолетних?",
   "Какие нормы регулируют регистрацию актов гражданского состояния?",
   "Какие статьи в базе связаны с предпринимательской деятельностью граждан?",
@@ -61,39 +76,40 @@ const assistantQuestionsRu = [
 
 const analyzerExamplesRu = [
   {
-    title: "Законопроект о регистрации компаний без адреса",
+    id: "registration_without_address",
+    title: "Стартап хочет зарегистрировать юрлицо без адреса и проверки документов",
     text: "Юридическое лицо может быть зарегистрировано без указания юридического адреса, без сведений об учредителях и без обязательной проверки достоверности представленных документов.",
   },
   {
-    title: "Законопроект об упрощенной ликвидации ООО",
-    text: "Общество с ограниченной ответственностью может быть ликвидировано по заявлению одного участника без уведомления кредиторов и без публикации сведений о ликвидации.",
+    id: "liquidation_without_creditors",
+    title: "Компания хочет ликвидироваться без уведомления кредиторов",
+    text: "Организация может быть ликвидирована по заявлению одного участника без уведомления кредиторов и без публикации сведений о ликвидации.",
   },
   {
-    title: "Законопроект о браке без государственной регистрации",
-    text: "Брак признается действительным с момента совместного проживания мужчины и женщины без обязательной государственной регистрации в органах ЗАГС.",
+    id: "minor_any_transactions",
+    title: "Предлагается разрешить несовершеннолетним любые сделки без согласия родителей",
+    text: "Граждане, достигшие 14 лет, вправе без согласия родителей заключать любые сделки, брать кредиты и отчуждать имущество.",
   },
   {
-    title: "Законопроект об ограничении дееспособности без суда",
-    text: "Органы местного самоуправления вправе самостоятельно признавать гражданина ограниченно дееспособным на основании жалоб соседей и родственников.",
+    id: "guardian_sell_without_permission",
+    title: "Опекун хочет продать имущество подопечного без разрешения органа",
+    text: "Законный представитель вправе продавать имущество подопечного без предварительного разрешения уполномоченного органа.",
   },
   {
-    title: "Законопроект о назначении опекуна без согласия семьи",
-    text: "Опекун несовершеннолетнего может быть назначен органом опеки без учета мнения близких родственников и без проверки условий проживания опекуна.",
-  },
-  {
-    title: "Законопроект о распоряжении имуществом подопечного",
-    text: "Опекун вправе продавать имущество подопечного без предварительного разрешения уполномоченного органа и без учета интересов подопечного.",
-  },
-  {
-    title: "Законопроект о продаже недвижимости несовершеннолетних",
-    text: "Жилые помещения, принадлежащие несовершеннолетним, могут отчуждаться по усмотрению законного представителя без дополнительного контроля государства.",
-  },
-  {
-    title: "Законопроект о полной дееспособности с 14 лет",
-    text: "Граждане, достигшие 14 лет, признаются полностью дееспособными и вправе без согласия родителей заключать любые сделки, брать кредиты и отчуждать имущество.",
+    id: "representative_without_power",
+    title: "Компания хочет дать представителю право на любые сделки без письменной доверенности",
+    text: "Представитель вправе совершать любые сделки от имени доверителя без письменной доверенности и без ограничения по сумме сделки.",
   },
   /*
   Архив русских кейсов анализатора:
+  - Законопроект о регистрации компаний без адреса
+  - Законопроект об упрощенной ликвидации ООО
+  - Законопроект о браке без государственной регистрации
+  - Законопроект об ограничении дееспособности без суда
+  - Законопроект о назначении опекуна без согласия семьи
+  - Законопроект о распоряжении имуществом подопечного
+  - Законопроект о продаже недвижимости несовершеннолетних
+  - Законопроект о полной дееспособности с 14 лет
   - Законопроект о продаже криптовалют без лицензии
   - Законопроект о рекламе финансовых услуг без раскрытия рисков
   - Законопроект о сборе персональных данных без согласия
@@ -144,6 +160,23 @@ const analyzerExamplesRu = [
 ]
 
 const assistantQuestionsUz = [
+  "Biz MChJ ochmoqchimiz. Ro'yxatdan o'tkazishdan oldin bazadan nimani tekshirish kerak?",
+  "Tashkilotni tugatmoqchimiz. Kreditorlarni xabardor qilish bo'yicha nimani ko'rish kerak?",
+  "Voyaga yetmagan shaxs shartnomani o'zi imzolamoqchi. Qaysi normalar biz uchun muhim?",
+  "Vasiy mol-mulkni sotmoqchi. Oldindan qaysi hujjat va moddalarni tekshirish kerak?",
+  "Vakilga bitim tuzish vakolatini bermoqchiman. Avval bazadan nimani ko'rish kerak?",
+  "Ta'sischilar ustav va ishtirokchilar tarkibini o'zgartirmoqchi. Qaysi hujjat va moddalarni tekshirish kerak?",
+  "Fuqaroga vasiylik rasmiylashtirmoqchimiz. Avvalo qaysi normalar va moddalarni ko'rish kerak?",
+  "Fuqaroni muomala layoqati cheklangan deb topishmoqchi. Qaysi normalar va moddalarni tekshirish kerak?",
+  "Fuqarolik holati dalolatnomasini ro'yxatdan o'tkazish kerak. Qaysi hujjat va moddalar kerak bo'ladi?",
+  "Voyaga yetmagan shaxs o'z mol-mulkini tasarruf etmoqchi. Qaysi normalarni ko'rish kerak?",
+  "Kompaniya qayta tashkil etilmoqchi. Qaysi hujjat va moddalarni oldindan tekshirish kerak?",
+  "Fuqarolik-huquqiy shartnoma tayyorlashdan oldin asosiy tamoyillarni bilmoqchiman. Bazadan nimani ko'ray?",
+  "Ishonchnoma bo'yicha vakilning vakolatlarini aniqlash kerak. Qaysi normalar va moddalar muhim?",
+  "Ishtirokchi yuridik shaxs tarkibidan chiqmoqchi. Qaysi hujjat va moddalarni tekshirish kerak?",
+  "Bitimni vakil orqali rasmiylashtirmoqchimiz. Imzolashdan oldin bazadan nimani albatta tekshirish kerak?",
+  /*
+  Arxivdagi o'zbekcha savollar:
   "Bazadagi qaysi hujjatlar yuridik shaxslarni ro'yxatdan o'tkazishni tartibga soladi?",
   "Qaysi normalar yuridik shaxslarni qayta tashkil etishga taalluqli?",
   "Qaysi moddalar yuridik shaxslarni tugatish bilan bog'liq?",
@@ -152,8 +185,6 @@ const assistantQuestionsUz = [
   "Yuridik shaxslarning bankrotligi va sanatsiyasi bo'yicha moddalarni ko'rsat.",
   "Bazadagi qaysi normalar vasiylik va homiylik bilan bog'liq?",
   "Qaysi moddalar fuqarolarning muomala layoqatini cheklashga taalluqli?",
-  /*
-  Arxivdagi o'zbekcha savollar:
   "Qaysi hujjatlar voyaga yetmaganlarning huquqiy maqomiga taalluqli?",
   "Qaysi normalar fuqarolik holati dalolatnomalarini ro'yxatdan o'tkazishni tartibga soladi?",
   "Bazadagi qaysi moddalar fuqarolarning tadbirkorlik faoliyati bilan bog'liq?",
@@ -206,39 +237,40 @@ const assistantQuestionsUz = [
 
 const analyzerExamplesUz = [
   {
-    title: "Kompaniyalarni manzilsiz ro'yxatdan o'tkazish haqidagi qonun loyihasi",
+    id: "registration_without_address",
+    title: "Startap yuridik shaxsni manzilsiz va tekshiruvsiz ro'yxatdan o'tkazmoqchi",
     text: "Yuridik shaxs yuridik manzili ko'rsatilmasdan, ta'sischilar to'g'risidagi ma'lumotlarsiz va taqdim etilgan hujjatlarning ishonchliligini majburiy tekshirmasdan ro'yxatdan o'tkazilishi mumkin.",
   },
   {
-    title: "MChJni soddalashtirilgan tartibda tugatish haqidagi qonun loyihasi",
-    text: "Mas'uliyati cheklangan jamiyat kreditorlarni xabardor qilmasdan va tugatish to'g'risidagi ma'lumotlarni e'lon qilmasdan bitta ishtirokchining arizasi asosida tugatilishi mumkin.",
+    id: "liquidation_without_creditors",
+    title: "Kompaniya kreditorlarni ogohlantirmasdan tugatilmoqchi",
+    text: "Tashkilot kreditorlarni xabardor qilmasdan va tugatish to'g'risidagi ma'lumotlarni e'lon qilmasdan bitta ishtirokchining arizasi asosida tugatilishi mumkin.",
   },
   {
-    title: "Davlat ro'yxatidan o'tkazmasdan nikoh haqidagi qonun loyihasi",
-    text: "Erkak va ayolning birga yashashi ZAGS organlarida majburiy davlat ro'yxatidan o'tkazilmasdan nikoh haqiqiy deb e'tirof etiladi.",
+    id: "minor_any_transactions",
+    title: "Voyaga yetmaganlarga ota-ona roziligisiz har qanday bitimga ruxsat berilmoqda",
+    text: "14 yoshga to'lgan fuqarolar ota-onasining roziligisiz har qanday bitimlarni tuzish, kredit olish va mol-mulkni begonalashtirishga haqli.",
   },
   {
-    title: "Sudsiz muomala layoqatini cheklash haqidagi qonun loyihasi",
-    text: "Mahalliy o'zini o'zi boshqarish organlari qo'shnilar va qarindoshlarning shikoyatlari asosida fuqaroni mustaqil ravishda muomala layoqati cheklangan deb topishga haqli.",
+    id: "guardian_sell_without_permission",
+    title: "Vasiylik ostidagi shaxs mol-mulki ruxsatsiz sotilmoqchi",
+    text: "Qonuniy vakil vakolatli organning oldindan ruxsatisiz vasiylik ostidagi shaxs mol-mulkini sotishga haqli.",
   },
   {
-    title: "Oila roziligisiz vasiy tayinlash haqidagi qonun loyihasi",
-    text: "Voyaga yetmaganga vasiy yaqin qarindoshlarning fikrini inobatga olmasdan va vasiy yashash sharoitlarini tekshirmasdan vasiylik organi tomonidan tayinlanishi mumkin.",
-  },
-  {
-    title: "Vasiylik ostidagi shaxs mulkini tasarruf etish haqidagi qonun loyihasi",
-    text: "Vasiy vakolatli organlarning oldindan ruxsatisiz va vasiylik ostidagi shaxs manfaatlarini inobatga olmasdan uning mol-mulkini sotishga haqli.",
-  },
-  {
-    title: "Voyaga yetmaganlar ko'chmas mulkini sotish haqidagi qonun loyihasi",
-    text: "Voyaga yetmaganlarga tegishli turar joylar davlatning qo'shimcha nazoratisiz qonuniy vakilning xohishiga ko'ra begonalashtirilishi mumkin.",
-  },
-  {
-    title: "14 yoshdan to'liq muomala layoqati haqidagi qonun loyihasi",
-    text: "14 yoshga to'lgan fuqarolar to'liq muomala layoqatiga ega deb e'tirof etiladi va ota-onasining roziligisiz har qanday bitimlarni tuzish, kredit olish hamda mol-mulkni begonalashtirishga haqli.",
+    id: "representative_without_power",
+    title: "Vakilga yozma ishonchnomasiz har qanday bitim tuzish vakolati berilmoqda",
+    text: "Vakil ishonchnomasiz va bitim summasi bo'yicha cheklovsiz ishonch bildiruvchining nomidan har qanday bitimlarni tuzishga haqli.",
   },
   /*
   Arxivdagi o'zbekcha analizator кейслари:
+  - Kompaniyalarni manzilsiz ro'yxatdan o'tkazish haqidagi qonun loyihasi
+  - MChJni soddalashtirilgan tartibda tugatish haqidagi qonun loyihasi
+  - Davlat ro'yxatidan o'tkazmasdan nikoh haqidagi qonun loyihasi
+  - Sudsiz muomala layoqatini cheklash haqidagi qonun loyihasi
+  - Oila roziligisiz vasiy tayinlash haqidagi qonun loyihasi
+  - Vasiylik ostidagi shaxs mulkini tasarruf etish haqidagi qonun loyihasi
+  - Voyaga yetmaganlar ko'chmas mulkini sotish haqidagi qonun loyihasi
+  - 14 yoshdan to'liq muomala layoqati haqidagi qonun loyihasi
   - Litsenziyasiz kriptovalyuta savdosi haqidagi qonun loyihasi
   - Xavflarni oshkor qilmasdan moliyaviy xizmatlarni reklama qilish haqidagi qonun loyihasi
   - Roziliksiz shaxsga doir ma'lumotlarni yig'ish haqidagi qonun loyihasi

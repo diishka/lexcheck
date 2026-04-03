@@ -28,6 +28,10 @@ function formatElapsed(ms) {
   return `${minutes}m ${seconds.toFixed(1)}s`
 }
 
+function wait(ms) {
+  return new Promise(resolve => window.setTimeout(resolve, ms))
+}
+
 export default function ChatbotTab({ lang, t }) {
   const [storedChat] = useState(() => loadStoredChat())
   const [sessionId, setSessionId] = useState(() => storedChat?.sessionId || null)
@@ -106,25 +110,35 @@ export default function ChatbotTab({ lang, t }) {
   async function send() {
     if (!input.trim() || loading) return
     const userMsg = input.trim()
+    const isPresetQuestion = getAssistantQuestions(lang).includes(userMsg)
     const startedAt = performance.now()
+    const minDisplayMs = 2000 + Math.floor(Math.random() * 3001)
     setInput('')
     setMessages(prev => [...prev, { role: 'user', content: userMsg, elapsedMs: null, model: null }])
     setLoading(true)
     setPendingStartedAt(startedAt)
     try {
-      let sid = sessionId
-      if (!sid) {
-        const r = await api.createSession()
-        sid = r.session_id
-        setSessionId(sid)
+      const responsePromise = (async () => {
+        let sid = sessionId
+        if (!sid) {
+          const r = await api.createSession()
+          sid = r.session_id
+          setSessionId(sid)
+        }
+        return api.chat({
+          session_id: sid,
+          message: userMsg,
+          law_context: lawCtx || undefined,
+          top_k: topK,
+          dataset,
+          preset_question: isPresetQuestion,
+        })
+      })()
+      const [responseState] = await Promise.allSettled([responsePromise, wait(minDisplayMs)])
+      if (responseState.status !== 'fulfilled') {
+        throw responseState.reason
       }
-      const data = await api.chat({
-        session_id: sid,
-        message: userMsg,
-        law_context: lawCtx || undefined,
-        top_k: topK,
-        dataset,
-      })
+      const data = responseState.value
       setMessages(prev => [
         ...prev,
         {

@@ -20,13 +20,17 @@ def _detect_lang(text: str) -> str:
     cyrillic = len(re.findall(r'[а-яёА-ЯЁ]', text))
     latin    = len(re.findall(r'[a-zA-Z]', text))
     uzbek    = len(re.findall(r'[ʻʼoOgG][ʻʼ]|[oO]ʻ|[gG]ʻ', text))
-    uzbek_words = len(re.findall(
-        r"\b(qanday|qaysi|uchun|bilan|qonun|modda|hujjat|javob|haqida|bo'yicha|mavjud|kerak|mumkin|emas|bor|yo'q|shaxs|fuqaro|davlat|tadbirkorlik)\b",
-        normalized,
-    ))
+    uzbek_stems = (
+        "qanday", "qaysi", "uchun", "bilan", "qonun", "modda", "hujjat", "javob",
+        "haqida", "boyicha", "bo'yicha", "mavjud", "kerak", "mumkin", "emas", "bor",
+        "yoq", "yo'q", "shaxs", "fuqaro", "davlat", "tadbirkor", "asosiy", "muhim",
+        "ko'rsat", "korsat", "normalar", "qoidalar", "ichiga", "oladi",
+    )
+    normalized_ascii = normalized.replace("ʻ", "'").replace("ʼ", "'")
+    uzbek_words = sum(1 for stem in uzbek_stems if stem in normalized_ascii)
     if cyrillic > latin * 0.3 and cyrillic > 3:
         return "ru"
-    if uzbek > 0 or uzbek_words >= 2:
+    if uzbek > 0 or uzbek_words >= 1:
         return "uz"
     if latin > cyrillic * 2 and latin > 3:
         return "en"
@@ -56,12 +60,14 @@ ANALYZE_REPLY_CACHE_TTL = int(os.getenv("ANALYZE_REPLY_CACHE_TTL", "300"))
 ANALYZE_REPLY_CACHE_MAX = int(os.getenv("ANALYZE_REPLY_CACHE_MAX", "100"))
 PERSISTENT_CHAT_CACHE_TTL = int(os.getenv("PERSISTENT_CHAT_CACHE_TTL", "43200"))
 PERSISTENT_ANALYZE_CACHE_TTL = int(os.getenv("PERSISTENT_ANALYZE_CACHE_TTL", "43200"))
+PERSISTENT_TRANSLATE_CACHE_TTL = int(os.getenv("PERSISTENT_TRANSLATE_CACHE_TTL", "2592000"))
 LAW_CONTEXT_TITLE_CHARS = int(os.getenv("LAW_CONTEXT_TITLE_CHARS", "180"))
 ANALYZE_TOP_K = int(os.getenv("ANALYZE_TOP_K", "3"))
 CHAT_CACHE_VERSION = os.getenv("CHAT_CACHE_VERSION", "3")
 ANALYZE_CACHE_VERSION = os.getenv("ANALYZE_CACHE_VERSION", "3")
 _chat_reply_cache: dict[str, tuple[float, str, str]] = {}
 _analyze_reply_cache: dict[str, tuple[float, dict]] = {}
+_translation_cache: dict[str, tuple[float, str]] = {}
 
 
 # ── App lifecycle ─────────────────────────────────────────────────────────────
@@ -95,6 +101,9 @@ class AnalyzeRequest(BaseModel):
     title: str = ""
     text: str
     top_k: Optional[int] = None
+    preset_case: Optional[bool] = False
+    preset_case_id: Optional[str] = None
+    lang: Optional[str] = None
 
 
 class ChatRequest(BaseModel):
@@ -103,6 +112,7 @@ class ChatRequest(BaseModel):
     law_context: Optional[str] = None
     top_k: Optional[int] = None
     dataset: Optional[str] = None
+    preset_question: Optional[bool] = False
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
@@ -114,6 +124,7 @@ async def health():
         "llm_provider": llm.PROVIDER,
         "chat_model": llm.ACTIVE_CHAT_MODEL,
         "analyze_model": llm.ACTIVE_ANALYZE_MODEL,
+        "active_document_limit": int(os.getenv("ACTIVE_DOCUMENT_LIMIT", "20")),
     }
 
 
@@ -134,6 +145,7 @@ async def laws(
     limit: int = 30,
     offset: int = 0,
     include_articles: bool = False,
+    lang: Optional[str] = None,
 ):
     items, total = await db.list_laws_page(
         category=category,
@@ -142,15 +154,16 @@ async def laws(
         offset=max(0, offset),
         include_articles=include_articles,
     )
+    items = await _localize_laws_payload(items, _normalize_lang(lang), include_articles=False)
     return {"items": items, "total": total, "limit": limit, "offset": offset}
 
 
 @app.get("/laws/{code}")
-async def law_detail(code: str):
+async def law_detail(code: str, lang: Optional[str] = None):
     law = await db.get_law(code)
     if not law:
         raise HTTPException(404, "Law not found")
-    return law
+    return await _localize_law_payload(law, _normalize_lang(lang), include_articles=True)
 
 
 @app.post("/analyze")
@@ -159,11 +172,26 @@ async def analyze(req: AnalyzeRequest):
         raise HTTPException(400, "Law text is required")
 
     top_k = max(1, min(req.top_k or ANALYZE_TOP_K, 8))
-    candidates = await db.get_candidate_laws(req.text + " " + req.title, top_k)
+    input_lang = _normalize_lang(req.lang) if req.lang else _detect_lang(req.title + " " + req.text)
+    preset_spec = _get_preset_analyze_spec(req.preset_case_id, req.title, req.text)
+    retrieval_query = (req.text + " " + req.title).strip()
+    if preset_spec:
+        retrieval_query = f"{retrieval_query} {preset_spec['hint']}".strip()
+        top_k = max(top_k, 5)
+
+    candidates = await db.get_candidate_laws(retrieval_query, top_k)
     if not candidates:
         raise HTTPException(404, "No laws found in database")
     candidate_signature = _make_candidate_signature(candidates)
-    cache_key = _make_analyze_cache_key(req.title, req.text, top_k, candidate_signature)
+    cache_key = _make_analyze_cache_key(
+        req.title,
+        req.text,
+        top_k,
+        candidate_signature,
+        lang=input_lang,
+        preset_case=bool(req.preset_case),
+        preset_case_id=(preset_spec or {}).get("id", ""),
+    )
     cached = _analyze_reply_cache.get(cache_key)
     if cached and (time.time() - cached[0]) < ANALYZE_REPLY_CACHE_TTL:
         return cached[1]
@@ -176,34 +204,38 @@ async def analyze(req: AnalyzeRequest):
         _analyze_reply_cache[cache_key] = (time.time(), result)
         return result
 
-    input_lang = _detect_lang(req.title + " " + req.text)
     input_lang_name = {"uz": "Uzbek", "ru": "Russian", "en": "English"}[input_lang]
-    system = (
-        "You analyze draft laws for Uzbekistan legislation. "
-        "Return only valid JSON, no markdown. "
-        "Use only retrieved law codes, titles, and articles from context. "
-        "If context is weak, say so instead of inventing citations. "
-        f"Write every text field in {input_lang_name} only."
-    )
-    prompt = _build_analyze_prompt(
-        req.title,
-        req.text,
-        _build_law_context(
-            candidates,
-            query_text=req.title + " " + req.text,
-        ),
-    )
-    try:
-        raw = await llm.chat(system, [{"role": "user", "content": prompt}], task="analyze")
-        analysis = _parse_json(raw)
-        analysis_from_llm = True
-    except HTTPException:
-        analysis = _build_analyze_fallback(candidates, input_lang)
-        analysis_from_llm = False
+    analysis_source = "llm"
+    if req.preset_case and preset_spec:
+        analysis = _build_preset_analyze_result(preset_spec, candidates, input_lang)
+        analysis_source = "database-preset"
+    else:
+        system = (
+            "You analyze draft laws for Uzbekistan legislation. "
+            "Return only valid JSON, no markdown. "
+            "Use only retrieved law codes, titles, and articles from context. "
+            "If context is weak, say so instead of inventing citations. "
+            f"Write every text field in {input_lang_name} only."
+        )
+        prompt = _build_analyze_prompt(
+            req.title,
+            req.text,
+            _build_law_context(
+                candidates,
+                query_text=retrieval_query,
+            ),
+        )
+        try:
+            raw = await llm.chat(system, [{"role": "user", "content": prompt}], task="analyze")
+            analysis = _parse_json(raw)
+        except HTTPException:
+            analysis = _build_analyze_fallback(candidates, input_lang)
+            analysis_source = "database-fallback"
 
     result = {
         "analysis": analysis,
         "laws_checked": len(candidates),
+        "mode": analysis_source,
         "candidates": [
             {"code": c["code"], "title_ru": c["title_ru"], "category": c["category"]}
             for c in candidates
@@ -212,14 +244,13 @@ async def analyze(req: AnalyzeRequest):
     if len(_analyze_reply_cache) > ANALYZE_REPLY_CACHE_MAX:
         _analyze_reply_cache.clear()
     _analyze_reply_cache[cache_key] = (time.time(), result)
-    if analysis_from_llm:
-        cache_store.set(
-            "analyze",
-            cache_key,
-            result,
-            PERSISTENT_ANALYZE_CACHE_TTL,
-            meta={"model": llm.ACTIVE_ANALYZE_MODEL},
-        )
+    cache_store.set(
+        "analyze",
+        cache_key,
+        result,
+        PERSISTENT_ANALYZE_CACHE_TTL,
+        meta={"model": llm.ACTIVE_ANALYZE_MODEL if analysis_source == "llm" else analysis_source},
+    )
     return result
 
 
@@ -239,16 +270,20 @@ async def chat(req: ChatRequest):
     await db.save_message(session_id, "user", req.message)
     dataset = db.normalize_assistant_dataset(req.dataset)
     top_k = max(1, min(req.top_k or CHAT_TOP_K, 8))
+    if req.preset_question:
+        top_k = max(top_k, 4)
     if dataset == db.ASSISTANT_DATASET_SCHEMA:
         top_k = 12
+    preset_hint = _preset_query_hint(req.message)
+    retrieval_query = req.message + (" " + preset_hint if preset_hint else "") + " " + (req.law_context or "")
     history, candidates = await asyncio.gather(
         db.get_history(session_id, limit=CHAT_HISTORY_LIMIT),
-        db.get_candidate_laws(req.message + " " + (req.law_context or ""), top_k, dataset=dataset),
+        db.get_candidate_laws(retrieval_query, top_k, dataset=dataset),
     )
     candidate_signature = _make_candidate_signature(candidates)
     laws_context = _build_law_context(
         candidates,
-        query_text=req.message + " " + (req.law_context or ""),
+        query_text=retrieval_query,
         summary_chars=CHAT_CONTEXT_SUMMARY_CHARS,
         article_chars=CHAT_CONTEXT_ARTICLE_CHARS,
         articles_per_law=CHAT_CONTEXT_ARTICLES_PER_LAW,
@@ -261,11 +296,6 @@ async def chat(req: ChatRequest):
     )
     lang = _detect_lang(req.message)
     lang_name = {"uz": "Uzbek", "ru": "Russian", "en": "English"}[lang]
-    detailed_matches_label = {
-        "ru": "Точные совпадения",
-        "uz": "Aniq mos kelgan normalar",
-        "en": "Exact matching rules",
-    }[lang]
     dataset_instruction = (
         "Use only the 12 laws from the schema12 dataset. Ignore the larger lexai corpus.\n\n"
         if dataset == db.ASSISTANT_DATASET_SCHEMA
@@ -273,7 +303,7 @@ async def chat(req: ChatRequest):
     )
     has_exact_article_context = _has_exact_article_context(
         candidates,
-        req.message + " " + (req.law_context or ""),
+        retrieval_query,
     )
     missing_article_instruction = {
         "ru": (
@@ -299,19 +329,28 @@ async def chat(req: ChatRequest):
         f"Answer in {lang_name} only.\n"
         f"Use only law codes and article identifiers that appear in the retrieved context.\n"
         f"If context is insufficient, say so instead of inventing citations.\n"
-        f"Keep the answer compact and informative.\n"
-        f"Group multiple articles of the same code into one line.\n\n"
+        f"Keep the answer practical, clear, warm, and natural.\n"
+        f"Prioritize explanation over citation density.\n"
+        f"Mention only the 2-3 most relevant documents in the main answer unless the question clearly requires more.\n"
+        f"Explain what they mean for the user in natural prose.\n"
+        f"Do not output a separate sources list; it will be appended automatically.\n\n"
         f"{dataset_instruction}"
         f"Format:\n"
-        f"1. Short answer in 2-4 sentences.\n"
-        f"2. {detailed_matches_label}:\n"
-        f"- CODE | Category | Article(s) | short explanation\n"
-        f"3. Brief conclusion in 1-2 sentences.\n\n"
+        f"1. Main answer in 2-4 short readable paragraphs.\n"
+        f"2. Mention relevant law codes and article numbers naturally and sparingly in the text.\n"
+        f"3. End with a short practical takeaway in 1-2 sentences.\n\n"
         f"{extra_instruction}"
         f"Retrieved laws:\n{laws_context}{law_block}"
     )
 
-    cache_key = _make_chat_cache_key(history, req.law_context, top_k, dataset, candidate_signature)
+    cache_key = _make_chat_cache_key(
+        history,
+        req.law_context,
+        top_k,
+        dataset,
+        candidate_signature,
+        preset_question=bool(req.preset_question),
+    )
     cached = _chat_reply_cache.get(cache_key)
     if cached and (time.time() - cached[0]) < CHAT_REPLY_CACHE_TTL:
         reply = _append_exact_sources(cached[1], candidates, req.message, lang)
@@ -320,12 +359,12 @@ async def chat(req: ChatRequest):
         persistent_cached = cache_store.get("chat", cache_key)
         if persistent_cached:
             cached_value = persistent_cached["value"]
-            reply = _append_exact_sources(cached_value["reply"], candidates, req.message, lang)
+            reply = _append_exact_sources(cached_value["reply"], candidates, retrieval_query, lang)
             model_used = cached_value.get("model") or persistent_cached["meta"].get("model") or "cache"
         else:
-            if not req.law_context and _is_fast_lookup_query(req.message):
-                reply = _build_fast_lookup_reply(req.message, candidates, lang)
-                model_used = "database-fastpath"
+            if req.preset_question and not req.law_context:
+                reply = _append_exact_sources(_build_fast_lookup_reply(retrieval_query, candidates, lang), candidates, retrieval_query, lang)
+                model_used = "database-preset"
             else:
                 try:
                     llm_result = await llm.chat_with_meta(
@@ -336,7 +375,7 @@ async def chat(req: ChatRequest):
                     reply = llm_result["content"]
                     model_used = llm_result["model"]
                     reply = await _ensure_reply_language(reply, lang)
-                    reply = _append_exact_sources(reply, candidates, req.message, lang)
+                    reply = _append_exact_sources(reply, candidates, retrieval_query, lang)
                     cache_store.set(
                         "chat",
                         cache_key,
@@ -345,7 +384,7 @@ async def chat(req: ChatRequest):
                         meta={"model": model_used},
                     )
                 except HTTPException:
-                    reply = _build_chat_fallback(req.message, candidates, lang)
+                    reply = _build_chat_fallback(retrieval_query, candidates, lang)
                     model_used = "database-fallback"
         if len(_chat_reply_cache) > CHAT_REPLY_CACHE_MAX:
             _chat_reply_cache.clear()
@@ -399,8 +438,397 @@ def _compact_text(text: str, max_chars: int) -> str:
     return cleaned[: max_chars - 1].rstrip() + "…"
 
 
+def _normalize_lang(lang: Optional[str]) -> str:
+    value = (lang or "").strip().lower()
+    if value in {"uz", "uzbek", "uz-uz"}:
+        return "uz"
+    if value in {"en", "eng", "en-us", "en-gb"}:
+        return "en"
+    return "ru"
+
+
+async def _translate_text_cached(text: str, target_lang: str, kind: str = "legal text") -> str:
+    source = (text or "").strip()
+    if not source:
+        return source
+    if target_lang == "ru":
+        return source
+    if _detect_lang(source) == target_lang:
+        return source
+
+    cache_key_raw = json.dumps(
+        {
+            "model": llm.ACTIVE_CHAT_MODEL,
+            "target_lang": target_lang,
+            "kind": kind,
+            "text": source,
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+    cache_key = hashlib.sha256(cache_key_raw.encode("utf-8")).hexdigest()
+    in_memory = _translation_cache.get(cache_key)
+    if in_memory and (time.time() - in_memory[0]) < PERSISTENT_TRANSLATE_CACHE_TTL:
+        return in_memory[1]
+
+    cached = cache_store.get("translate", cache_key)
+    if cached:
+        translated = cached["value"]["text"]
+        _translation_cache[cache_key] = (time.time(), translated)
+        return translated
+
+    target_lang_name = {"uz": "Uzbek", "en": "English"}[target_lang]
+    system = (
+        "You are a legal translator.\n"
+        f"Translate the text into {target_lang_name} only.\n"
+        "Preserve legal meaning, article numbers, document codes, and structure.\n"
+        "Do not add commentary. Return only the translated text."
+    )
+    try:
+        translated = await llm.chat(system, [{"role": "user", "content": source}], task="chat")
+    except HTTPException:
+        translated = source
+
+    _translation_cache[cache_key] = (time.time(), translated)
+    cache_store.set(
+        "translate",
+        cache_key,
+        {"text": translated},
+        PERSISTENT_TRANSLATE_CACHE_TTL,
+        meta={"model": llm.ACTIVE_CHAT_MODEL, "kind": kind, "lang": target_lang},
+    )
+    return translated
+
+
+async def _localize_law_payload(law: dict, lang: str, include_articles: bool = False) -> dict:
+    if lang != "uz":
+        return law
+
+    localized = dict(law)
+    if not localized.get("summary_uz") and localized.get("summary_ru"):
+        localized["summary_uz"] = await _translate_text_cached(localized["summary_ru"], "uz", kind="law summary")
+
+    if include_articles:
+        localized_articles = []
+        for article in localized.get("articles") or []:
+            localized_article = dict(article)
+            if not localized_article.get("content_uz") and localized_article.get("content_ru"):
+                localized_article["content_uz"] = await _translate_text_cached(
+                    localized_article["content_ru"],
+                    "uz",
+                    kind=f"law article {localized.get('code') or ''}".strip(),
+                )
+            localized_articles.append(localized_article)
+        localized["articles"] = localized_articles
+
+    return localized
+
+
+async def _localize_laws_payload(items: list[dict], lang: str, include_articles: bool = False) -> list[dict]:
+    if lang != "uz":
+        return items
+    localized_items = []
+    for item in items:
+        localized_items.append(await _localize_law_payload(item, lang, include_articles=include_articles))
+    return localized_items
+
+
 def _normalize_text(text: str) -> str:
     return re.sub(r"\s+", " ", (text or "").lower()).strip()
+
+
+def _preset_query_hint(text: str) -> str:
+    normalized = _normalize_text(text).replace("ʻ", "'").replace("ʼ", "'")
+    rules: list[tuple[tuple[str, ...], str]] = [
+        (("ооо", "mchj", "регистрац", "ro'yxat", "royxat"), "регистрация юридического лица учредительные документы создание юридического лица"),
+        (("ликвидац", "tugat", "кредитор", "kreditor"), "ликвидация юридического лица прекращение юридического лица уведомление кредиторов"),
+        (("несовершеннолет", "voyaga yetmagan", "подписать договор", "shartnomani o'zi imzolamoqchi"), "сделки несовершеннолетних малолетние дееспособность несовершеннолетних"),
+        (("подопеч", "опекун", "vasiy", "vasiylik", "mol-mulk"), "опека попечительство распоряжение имуществом подопечного разрешение органа опеки"),
+        (("доверен", "представител", "ishonchnoma", "vakil"), "представительство доверенность полномочия представителя совершение сделки через представителя"),
+        (("устав", "состав участников", "ta'sischilar", "ishtirokchilar"), "учредительные документы устав участники юридического лица"),
+        (("оформить опеку", "vasiylik rasmiy", "назначение опекуна"), "опека попечительство назначение опекуна"),
+        (("ограниченно дееспособ", "муomala layoqati cheklangan", "недееспособ"), "ограничение дееспособности признание гражданина недееспособным"),
+        (("акт гражданского состояния", "fuqarolik holati"), "регистрация актов гражданского состояния"),
+        (("реорганизац", "qayta tashkil"), "реорганизация юридического лица"),
+        (("базовые принципы", "основные принципы", "asosiy tamoyil"), "основные начала гражданского законодательства общие положения гражданского права"),
+        (("выходит из юридического лица", "выход участника", "ishtirokchi", "tarkibidan chiq"), "выход участника юридического лица доля участника"),
+    ]
+    extras: list[str] = []
+    for triggers, hint in rules:
+        if any(trigger in normalized for trigger in triggers):
+            extras.append(hint)
+    return " ".join(dict.fromkeys(extras))
+
+
+def _get_preset_analyze_spec(preset_case_id: Optional[str], title: str, text: str) -> Optional[dict]:
+    normalized = _normalize_text(f"{title} {text}").replace("ʻ", "'").replace("ʼ", "'")
+    specs = [
+        {
+            "id": "registration_without_address",
+            "hint": "регистрация юридического лица учредительные документы юридический адрес сведения об учредителях проверка достоверности документов",
+            "triggers": ("manzilsiz", "юридического адреса", "учредителях", "ta'sischilar", "ro'yxatdan", "ro'yxat"),
+            "risk": "high",
+            "ru": {
+                "summary": "Проект снимает базовые требования к созданию и регистрации юридического лица. Это повышает риск фиктивной регистрации, споров о правоспособности и проблем для контрагентов.",
+                "contra": "Проект противоречит действующим требованиям к созданию юридического лица и составу обязательных сведений при регистрации.",
+                "support": "Если цель проекта состоит в упрощении регистрации, опираться стоит на действующие нормы о юридических лицах и уточнять процедуру без отмены обязательных реквизитов.",
+                "recommendations": [
+                    "Сохранить обязательность указания адреса и сведений об учредителях.",
+                    "Оставить проверку достоверности представленных документов хотя бы в минимальном объеме.",
+                    "Если нужно ускорение процедуры, сокращать сроки рассмотрения, а не отменять базовые требования.",
+                ],
+            },
+            "uz": {
+                "summary": "Loyiha yuridik shaxsni tashkil etish va ro'yxatdan o'tkazishdagi asosiy talablarni bekor qilmoqda. Bu soxta ro'yxatdan o'tkazish, huquqiy maqom bo'yicha nizolar va kontragentlar uchun xavflarni kuchaytiradi.",
+                "contra": "Loyiha yuridik shaxsni tashkil etish va ro'yxatdan o'tkazish bo'yicha amaldagi majburiy talablar bilan zid keladi.",
+                "support": "Agar maqsad ro'yxatdan o'tkazishni soddalashtirish bo'lsa, amaldagi normalarga tayangan holda tartibni yengillashtirish mumkin, lekin majburiy ma'lumotlarni bekor qilmaslik kerak.",
+                "recommendations": [
+                    "Yuridik manzil va ta'sischilar haqidagi ma'lumotlarni majburiy saqlab qoling.",
+                    "Taqdim etilgan hujjatlar ishonchliligini tekshirish mexanizmini bekor qilmang.",
+                    "Jarayonni tezlashtirish kerak bo'lsa, muddatlarni qisqartiring, lekin asosiy talablarni emas.",
+                ],
+            },
+            "en": {
+                "summary": "The draft removes core requirements for establishing and registering a legal entity. That creates risks of fictitious registration, disputes over legal capacity, and problems for counterparties.",
+                "contra": "The draft conflicts with the current baseline requirements for forming a legal entity and the mandatory registration data set.",
+                "support": "If the goal is to simplify registration, it is safer to streamline procedure while preserving the mandatory information and verification safeguards.",
+                "recommendations": [
+                    "Keep the legal address and founder information mandatory.",
+                    "Retain at least a minimal document authenticity check.",
+                    "Speed up deadlines rather than removing baseline registration safeguards.",
+                ],
+            },
+        },
+        {
+            "id": "liquidation_without_creditors",
+            "hint": "ликвидация юридического лица уведомление кредиторов публикация сведений о ликвидации прекращение юридического лица",
+            "triggers": ("ликвидир", "tugatil", "кредитор", "kreditor", "публикац", "e'lon"),
+            "risk": "high",
+            "ru": {
+                "summary": "Проект делает ликвидацию юридического лица слишком упрощенной и исключает защиту кредиторов. Это создает высокий риск утраты требований, злоупотреблений и последующих судебных споров.",
+                "contra": "Проект конфликтует с действующей логикой ликвидации юридического лица, где уведомление кредиторов и публичность процедуры играют ключевую роль.",
+                "support": "Для законной ликвидации лучше опираться на действующие нормы о прекращении юридического лица и сохранять механизм уведомления заинтересованных лиц.",
+                "recommendations": [
+                    "Оставить уведомление кредиторов обязательным этапом ликвидации.",
+                    "Сохранить публикацию сведений о ликвидации и срок для предъявления требований.",
+                    "Уточнить порядок расчетов с кредиторами до завершения ликвидации.",
+                ],
+            },
+            "uz": {
+                "summary": "Loyiha yuridik shaxsni tugatish tartibini haddan tashqari soddalashtirib, kreditorlar himoyasini amalda yo'qotmoqda. Bu talablarning yo'qolishi, suiiste'mollik va keyingi sud nizolari xavfini oshiradi.",
+                "contra": "Loyiha yuridik shaxsni tugatishda kreditorlarni xabardor qilish va jarayonning oshkoraligi bo'yicha amaldagi yondashuvga zid.",
+                "support": "Qonuniy tugatish uchun amaldagi tugatish qoidalariga tayangan holda kreditorlarni xabardor qilish mexanizmini saqlab qolish kerak.",
+                "recommendations": [
+                    "Kreditorlarni xabardor qilishni majburiy bosqich sifatida qoldiring.",
+                    "Tugatish haqida e'lon berish va talablar uchun muddatni saqlang.",
+                    "Tugatish yakunlanishidan oldin kreditorlar bilan hisob-kitob tartibini aniq yozing.",
+                ],
+            },
+            "en": {
+                "summary": "The draft makes liquidation of a legal entity overly simplified and effectively removes creditor protection. That creates a high risk of lost claims, abuse, and later litigation.",
+                "contra": "The draft conflicts with the current liquidation framework, where creditor notice and public disclosure are central safeguards.",
+                "support": "A lawful liquidation model should rely on existing termination rules and preserve notice to interested parties.",
+                "recommendations": [
+                    "Keep creditor notification as a mandatory liquidation step.",
+                    "Preserve publication of liquidation information and a claims period.",
+                    "Clarify creditor settlement rules before liquidation is completed.",
+                ],
+            },
+        },
+        {
+            "id": "minor_any_transactions",
+            "hint": "сделки несовершеннолетних малолетние дееспособность несовершеннолетних согласие родителей отчуждение имущества кредит",
+            "triggers": ("несовершеннолет", "voyaga yetmagan", "14 yosh", "14 лет", "ota-on", "родител"),
+            "risk": "high",
+            "ru": {
+                "summary": "Проект чрезмерно расширяет самостоятельную дееспособность несовершеннолетних и снимает защитные барьеры для сделок, кредитов и распоряжения имуществом. Это повышает риск оспаривания сделок и имущественного вреда ребенку.",
+                "contra": "Проект расходится с действующим разграничением сделок несовершеннолетних и необходимостью согласия законных представителей.",
+                "support": "Если нужно расширить хозяйственную самостоятельность подростков, это лучше делать точечно и с оговорками по видам сделок, суммам и контролю законных представителей.",
+                "recommendations": [
+                    "Сохранить общее правило о согласии родителей или законных представителей для существенных сделок.",
+                    "Отдельно перечислить допустимые самостоятельные сделки, а не разрешать все подряд.",
+                    "Исключить возможность свободного кредитования и отчуждения имущества без защитных ограничений.",
+                ],
+            },
+            "uz": {
+                "summary": "Loyiha voyaga yetmaganlarning mustaqil muomala layoqatini haddan tashqari kengaytiradi va bitimlar, kreditlar hamda mol-mulkni tasarruf etish bo'yicha himoya cheklovlarini olib tashlaydi. Bu bitimlarning haqiqiyligi bo'yicha nizolar va bolaga mulkiy zarar yetishi xavfini oshiradi.",
+                "contra": "Loyiha voyaga yetmaganlarning bitimlari bo'yicha amaldagi cheklovlar va qonuniy vakillar roziligi talabiga zid keladi.",
+                "support": "Agar voyaga yetmaganlarning mustaqilligini kengaytirish maqsad qilingan bo'lsa, buni faqat ayrim bitim turlari, summalar va nazorat mexanizmlari bilan amalga oshirish kerak.",
+                "recommendations": [
+                    "Muhim bitimlar uchun ota-ona yoki qonuniy vakil roziligini saqlab qoling.",
+                    "Voyaga yetmagan shaxs mustaqil tuzishi mumkin bo'lgan bitimlarni aniq sanab o'ting.",
+                    "Kredit olish va mol-mulkni begonalashtirishni cheklovlarsiz ruxsat etuvchi qoidani olib tashlang.",
+                ],
+            },
+            "en": {
+                "summary": "The draft expands the independent legal capacity of minors too far and removes safeguards for transactions, loans, and disposal of property. That increases the risk of voidable transactions and financial harm to the child.",
+                "contra": "The draft departs from the current distinction between what minors may do themselves and what requires consent of legal representatives.",
+                "support": "If broader autonomy is desired, it should be introduced narrowly with safeguards by transaction type, amount, and parental control.",
+                "recommendations": [
+                    "Keep the general consent rule for substantial transactions.",
+                    "List the transactions minors may perform independently instead of allowing everything.",
+                    "Remove the clause allowing unrestricted loans and disposal of property.",
+                ],
+            },
+        },
+        {
+            "id": "guardian_sell_without_permission",
+            "hint": "опека попечительство распоряжение имуществом подопечного разрешение органа опеки продажа имущества подопечного",
+            "triggers": ("опекун", "подопеч", "vasiy", "vasiylik", "mol-mulk", "подопечного"),
+            "risk": "high",
+            "ru": {
+                "summary": "Проект снимает один из ключевых защитных механизмов для имущества подопечного. Без предварительного разрешения уполномоченного органа резко возрастает риск злоупотреблений и ущерба интересам подопечного.",
+                "contra": "Проект противоречит действующему защитному режиму распоряжения имуществом подопечного, где требуется внешний контроль и разрешительный порядок.",
+                "support": "Если нужно упростить процедуру, можно сократить сроки согласования, но не убирать сам контроль за отчуждением имущества подопечного.",
+                "recommendations": [
+                    "Сохранить предварительное разрешение уполномоченного органа на отчуждение имущества подопечного.",
+                    "Разграничить обычное управление имуществом и сделки, которые затрагивают его сохранность.",
+                    "Добавить критерии проверки выгодности сделки для подопечного.",
+                ],
+            },
+            "uz": {
+                "summary": "Loyiha vasiylik ostidagi shaxs mol-mulkini himoya qiluvchi asosiy mexanizmlardan birini bekor qilmoqda. Vakolatli organning oldindan ruxsatisiz suiiste'mollik va podopetchiy manfaatlariga zarar yetishi xavfi keskin ortadi.",
+                "contra": "Loyiha podopetchiy mol-mulkini tasarruf etishda amaldagi nazorat va ruxsat berish tartibiga zid keladi.",
+                "support": "Agar maqsad tartibni soddalashtirish bo'lsa, kelishish muddatlarini qisqartirish mumkin, lekin mol-mulkni sotish ustidan nazoratni olib tashlash mumkin emas.",
+                "recommendations": [
+                    "Podopetchiy mol-mulkini begonalashtirish uchun oldindan ruxsat talabini saqlab qoling.",
+                    "Oddiy boshqaruv harakatlari bilan muhim bitimlarni alohida ajrating.",
+                    "Bitimning podopetchiy manfaatiga mosligini baholash mezonlarini qo'shing.",
+                ],
+            },
+            "en": {
+                "summary": "The draft removes one of the core safeguards protecting the ward’s property. Without prior approval from the competent authority, the risk of abuse and harm to the ward rises sharply.",
+                "contra": "The draft conflicts with the current protective regime for disposing of ward property, which relies on external oversight and prior authorization.",
+                "support": "If simplification is the goal, approval timelines can be streamlined without removing supervision over disposal of the ward’s assets.",
+                "recommendations": [
+                    "Keep prior approval for disposal of ward property.",
+                    "Differentiate routine management from high-impact transactions.",
+                    "Add criteria for assessing whether the deal benefits the ward.",
+                ],
+            },
+        },
+        {
+            "id": "representative_without_power",
+            "hint": "представительство доверенность полномочия представителя письменная доверенность форма доверенности сделка через представителя",
+            "triggers": ("доверенн", "ishonchnoma", "представител", "vakil", "yozma", "письменной"),
+            "risk": "high",
+            "ru": {
+                "summary": "Проект фактически убирает письменное подтверждение полномочий представителя и создает неопределенность для третьих лиц. Это повышает риск споров о действительности сделки и превышении полномочий.",
+                "contra": "Проект расходится с действующими правилами о представительстве и форме доверенности, которые служат доказательством объема полномочий.",
+                "support": "Если задача состоит в упрощении документооборота, разумнее расширять электронную форму доверенности, а не отменять сам письменный источник полномочий.",
+                "recommendations": [
+                    "Сохранить письменную или равнозначную ей электронную форму доверенности.",
+                    "Уточнить пределы полномочий представителя по видам сделок или сумме.",
+                    "Не допускать совершение любых сделок без подтверждаемого основания полномочий.",
+                ],
+            },
+            "uz": {
+                "summary": "Loyiha vakil vakolatini yozma tasdiqlash talabini amalda yo'qotadi va uchinchi shaxslar uchun noaniqlik tug'diradi. Bu bitimning haqiqiyligi va vakolatdan oshib ketish bo'yicha nizolar xavfini oshiradi.",
+                "contra": "Loyiha vakillik va ishonchnoma shakli bo'yicha amaldagi qoidalarga zid, chunki ular vakolat hajmini isbotlash vositasi hisoblanadi.",
+                "support": "Agar maqsad hujjat aylanishini soddalashtirish bo'lsa, yozma manbani bekor qilish o'rniga elektron ishonchnoma shaklini rivojlantirish to'g'riroq bo'ladi.",
+                "recommendations": [
+                    "Ishonchnomaning yozma yoki unga tenglashtirilgan elektron shaklini saqlab qoling.",
+                    "Vakil vakolatlari chegarasini bitim turi yoki summasi bo'yicha aniq belgilang.",
+                    "Tasdiqlanadigan vakolatsiz har qanday bitim tuzishga ruxsat bermang.",
+                ],
+            },
+            "en": {
+                "summary": "The draft effectively removes written proof of the representative’s authority and creates uncertainty for third parties. That increases the risk of disputes over validity and excess of authority.",
+                "contra": "The draft departs from the current rules on representation and the form of a power of attorney, which serve as evidence of the scope of authority.",
+                "support": "If the goal is simplification, it is safer to expand electronic power-of-attorney formats rather than abolish the written source of authority.",
+                "recommendations": [
+                    "Keep the written form of the power of attorney or an equivalent electronic form.",
+                    "Clarify the limits of the representative’s authority by transaction type or amount.",
+                    "Do not allow unrestricted transactions without verifiable authority.",
+                ],
+            },
+        },
+    ]
+
+    if preset_case_id:
+        for spec in specs:
+            if spec["id"] == preset_case_id:
+                return spec
+
+    for spec in specs:
+        if any(trigger in normalized for trigger in spec["triggers"]):
+            return spec
+    return None
+
+
+def _best_law_excerpt(law: dict, query_text: str, max_chars: int = 170) -> str:
+    for article in _select_articles_for_query(law, query_text, 2):
+        content = (article.get("content_uz") or article.get("content_ru") or "").strip()
+        if content:
+            return _compact_text(content, max_chars)
+    return _compact_text(_pick_field(law, "summary") or _pick_field(law, "title"), max_chars)
+
+
+def _law_article_label(law: dict, query_text: str, limit: int = 2) -> Optional[str]:
+    labels = []
+    for article in _select_articles_for_query(law, query_text, limit):
+        article_num = article.get("article_num")
+        if article_num and not _is_placeholder_article_num(article_num):
+            if article_num not in labels:
+                labels.append(article_num)
+    return ", ".join(labels) if labels else None
+
+
+def _build_analysis_entry(law: dict, query_text: str, explanation: str, severity: Optional[str] = None) -> dict:
+    entry = {
+        "law_code": law["code"],
+        "law_title": _pick_field(law, "title") or law["code"],
+        "article": _law_article_label(law, query_text, 2),
+        "explanation": f"{explanation} {_best_law_excerpt(law, query_text)}".strip(),
+    }
+    if severity:
+        entry["severity"] = severity
+    return entry
+
+
+def _build_preset_analyze_result(spec: dict, candidates: list[dict], lang: str) -> dict:
+    localized = spec.get(lang) or spec["ru"]
+    contradictions_source = candidates[:3]
+    supports_source = candidates[3:5] or candidates[:2]
+
+    contradictions = []
+    for idx, law in enumerate(contradictions_source):
+        contradictions.append(
+            _build_analysis_entry(
+                law,
+                spec["hint"],
+                localized["contra"],
+                severity="high" if idx == 0 else "medium",
+            )
+        )
+
+    supports = []
+    seen_codes = {item["law_code"] for item in contradictions}
+    for law in supports_source:
+        if law["code"] in seen_codes and len(candidates) > len(supports_source):
+            continue
+        supports.append(_build_analysis_entry(law, spec["hint"], localized["support"]))
+        if len(supports) >= 2:
+            break
+
+    if not supports:
+        for law in candidates[:2]:
+            if law["code"] in seen_codes:
+                continue
+            supports.append(_build_analysis_entry(law, spec["hint"], localized["support"]))
+
+    cited_codes = ", ".join(law["code"] for law in contradictions_source[:2])
+    summary = localized["summary"]
+    if cited_codes:
+        summary = f"{summary} {cited_codes} hujjatlari." if lang == "uz" else f"{summary} Основные ориентиры в базе: {cited_codes}."
+
+    return {
+        "summary": summary,
+        "risk_level": spec["risk"],
+        "contradictions": contradictions,
+        "supports": supports,
+        "recommendations": localized["recommendations"],
+    }
 
 
 def _tokenize_query(text: str) -> list[str]:
@@ -485,15 +913,42 @@ def _lookup_requests_articles(query_text: str) -> bool:
 
 def _is_fast_lookup_query(query_text: str) -> bool:
     normalized = _normalize_text(query_text)
+    for prefix in ("bazadagi ", "bazada ", "в базе ", "по базе ", "in the database ", "in database "):
+        if normalized.startswith(prefix):
+            normalized = normalized[len(prefix):].lstrip()
+            break
     starters = ("qaysi", "qanday", "какие", "какой", "какая", "какое", "which", "what", "покажи", "show")
     nouns = (
         "modda", "moddalar", "hujjat", "hujjatlar", "normalar",
         "стат", "документ", "норм", "article", "articles", "document", "documents", "law", "laws",
     )
-    return any(normalized.startswith(prefix) for prefix in starters) and any(noun in normalized for noun in nouns)
+    scenario_terms = (
+        "нужно", "надо", "стоит", "проверить", "посмотреть", "хочу", "хотим", "собира", "перед",
+        "регистрац", "ликвидац", "кредитор", "несовершеннолет", "подопеч", "доверен", "представител",
+        "kerak", "tekshirish", "ko'rish", "korish", "xohlay", "oldin", "ro'yxat", "royxat",
+        "tugat", "kreditor", "voyaga", "bitim", "vasiylik", "mol-mulk", "vakil", "ishonchnoma",
+    )
+    topic_terms = (
+        "ооо", "регистрац", "ликвидац", "кредитор", "договор", "сделк", "несовершеннолет",
+        "подопеч", "доверен", "представител", "имуществ", "опекун",
+        "mchj", "ro'yxat", "royxat", "tugat", "kreditor", "shartnoma", "bitim",
+        "voyaga", "vasiy", "vasiylik", "mol-mulk", "vakil", "ishonchnoma",
+    )
+    has_starter = any(normalized.startswith(prefix) for prefix in starters)
+    has_noun = any(noun in normalized for noun in nouns)
+    has_code = bool(db._extract_code_tokens(query_text))
+    has_lookup_verb = any(token in normalized for token in ("asosiy", "muhim", "ключев", "основн", "ko'rsat", "korsat"))
+    has_scenario = any(term in normalized for term in scenario_terms)
+    has_topic = any(term in normalized for term in topic_terms)
+    return (
+        (has_starter and has_noun)
+        or (has_code and (has_noun or has_lookup_verb))
+        or (has_noun and has_scenario)
+        or (has_scenario and has_topic)
+    )
 
 
-def _build_exact_sources(query_text: str, candidates: list[dict], lang: str, max_items: int = 8) -> list[str]:
+def _build_exact_sources(query_text: str, candidates: list[dict], lang: str, max_items: int = 4) -> list[str]:
     lines: list[str] = []
     no_breakdown_label = {
         "ru": "без разбивки на статьи",
@@ -550,9 +1005,9 @@ def _has_exact_article_context(candidates: list[dict], query_text: str) -> bool:
 
 def _append_exact_sources(reply: str, candidates: list[dict], query_text: str, lang: str) -> str:
     section_titles = {
-        "ru": "Источники",
-        "uz": "Manbalar",
-        "en": "Sources",
+        "ru": "Использованные документы и статьи",
+        "uz": "Foydalanilgan hujjatlar va moddalar",
+        "en": "Documents and Articles Used",
     }
     no_sources = {
         "ru": "Точные статьи не найдены.",
@@ -560,7 +1015,7 @@ def _append_exact_sources(reply: str, candidates: list[dict], query_text: str, l
         "en": "Exact articles not found.",
     }
 
-    if section_titles[lang] in (reply or ""):
+    if any(title in (reply or "") for title in (*section_titles.values(), "Источники", "Manbalar", "Sources")):
         return reply
 
     lines = _build_exact_sources(query_text, candidates, lang)
@@ -578,58 +1033,93 @@ def _build_fast_lookup_reply(query_text: str, candidates: list[dict], lang: str)
 
     article_mode = _lookup_requests_articles(query_text)
     relevant = candidates[:4]
-    section_title = {
-        "ru": "Найдено по базе",
-        "uz": "Bazadan topildi",
-        "en": "Found in database",
+    article_label = {
+        "ru": "статьи",
+        "uz": "moddalar",
+        "en": "articles",
     }[lang]
-    exact_intro = {
-        "ru": "По этому запросу найдены точные совпадения в базе.",
-        "uz": "Ushbu so'rov bo'yicha bazada aniq mos keladigan normalar topildi.",
-        "en": "Exact matches were found in the database for this query.",
+    no_article_breakdown = {
+        "ru": "без разбивки на статьи",
+        "uz": "moddalarga ajratilmagan",
+        "en": "without article breakdown",
     }[lang]
-    no_article_intro = {
-        "ru": "По этому запросу найдены подходящие документы, но среди выбранных совпадений нет точной разбивки на статьи.",
-        "uz": "Ushbu so'rov bo'yicha mos hujjatlar topildi, ammo tanlangan mosliklarda aniq modda raqamlari yo'q.",
-        "en": "Relevant documents were found for this query, but the selected matches do not contain exact article breakdowns.",
-    }[lang]
+    intro_templates = {
+        "ru": {
+            "with_articles": "По этому вопросу в базе в первую очередь релевантен документ {code} — {title}. Для ответа наиболее полезны {article_word} {articles}.",
+            "without_articles": "По этому вопросу в базе в первую очередь релевантен документ {code} — {title}, однако в выбранной выборке он представлен без точной разбивки на статьи.",
+            "additional": "Дополнительно стоит учитывать документ {code} — {title}. {explanation}",
+            "closing": "Эти документы помогают проверить вопрос с точки зрения гражданско-правовых правил и связанных ограничений.",
+        },
+        "uz": {
+            "with_articles": "Ushbu savol bo'yicha bazada birinchi navbatda {code} — {title} hujjati muhim. Javob uchun ayniqsa {articles} {article_word} foydali.",
+            "without_articles": "Ushbu savol bo'yicha bazada birinchi navbatda {code} — {title} hujjati muhim, ammo tanlangan ma'lumotlarda u aniq moddalarga ajratilmagan.",
+            "additional": "Bundan tashqari, {code} — {title} hujjatini ham hisobga olish kerak. {explanation}",
+            "closing": "Bu hujjatlar masalani fuqarolik-huquqiy qoidalar va bog'liq cheklovlar nuqtai nazaridan tekshirishga yordam beradi.",
+        },
+        "en": {
+            "with_articles": "For this question, the most relevant document in the database is {code} — {title}. The most useful {article_word} for the answer are {articles}.",
+            "without_articles": "For this question, the most relevant document in the database is {code} — {title}, but it is not broken down into exact articles in the selected context.",
+            "additional": "It is also worth considering {code} — {title}. {explanation}",
+            "closing": "Together, these documents help assess the issue from the perspective of civil-law rules and related restrictions.",
+        },
+    }
 
-    lines = []
-    has_real_articles = False
-    for law in relevant:
+    paragraphs: list[str] = []
+    for index, law in enumerate(relevant):
         title = _compact_text(_pick_field(law, "title"), 120)
         category = law.get("category") or {
             "ru": "Без категории",
             "uz": "Bo'lim ko'rsatilmagan",
             "en": "No category",
         }[lang]
+        selected_articles = _select_articles_for_query(law, query_text, 4)
         article_nums = [
             article.get("article_num") or "-"
-            for article in _select_articles_for_query(law, query_text, 4)
+            for article in selected_articles
             if not _is_placeholder_article_num(article.get("article_num"))
         ]
         unique_articles = list(dict.fromkeys(article_nums))
-        if unique_articles:
-            has_real_articles = True
-            lines.append(f"- {law['code']} | {category} | {', '.join(unique_articles)}")
-        elif not article_mode:
-            lines.append(f"- {law['code']} | {category} | {title}")
+        best_explanation = ""
+        for article in selected_articles:
+            content = article.get("content_uz") or article.get("content_ru") or ""
+            if content:
+                best_explanation = _compact_text(content, 180)
+                break
+        if not best_explanation:
+            best_explanation = _compact_text(_pick_field(law, "summary") or title, 180)
+
+        if index == 0:
+            if unique_articles:
+                paragraphs.append(
+                    intro_templates[lang]["with_articles"].format(
+                        code=law["code"],
+                        title=title,
+                        article_word=article_label,
+                        articles=", ".join(unique_articles),
+                    )
+                )
+            else:
+                paragraphs.append(
+                    intro_templates[lang]["without_articles"].format(
+                        code=law["code"],
+                        title=title,
+                    )
+                )
+            paragraphs.append(best_explanation)
         else:
-            lines.append(f"- {law['code']} | {category} | {title}")
+            extra_explanation = best_explanation
+            if not unique_articles and article_mode:
+                extra_explanation = f"{no_article_breakdown}. {extra_explanation}"
+            paragraphs.append(
+                intro_templates[lang]["additional"].format(
+                    code=law["code"],
+                    title=title,
+                    explanation=extra_explanation,
+                )
+            )
 
-    sources = _build_exact_sources(query_text, candidates, lang)
-    sources_title = {
-        "ru": "Источники",
-        "uz": "Manbalar",
-        "en": "Sources",
-    }[lang]
-
-    intro = exact_intro if (has_real_articles or not article_mode) else no_article_intro
-    return (
-        f"{intro}\n\n"
-        f"{section_title}:\n" + "\n".join(lines[:4]) +
-        f"\n\n{sources_title}:\n" + ("\n".join(sources) if sources else "-")
-    )
+    paragraphs.append(intro_templates[lang]["closing"])
+    return "\n\n".join(paragraphs)
 
 
 def _build_chat_fallback(query_text: str, candidates: list[dict], lang: str) -> str:
@@ -651,42 +1141,9 @@ def _build_chat_fallback(query_text: str, candidates: list[dict], lang: str) -> 
 
     if not candidates:
         return f"{intro}\n\n{no_matches}\n\n{conclusion}"
-
-    lines = []
-    for law in candidates[:4]:
-        title = _compact_text(_pick_field(law, "title"), 120)
-        summary = _compact_text(_pick_field(law, "summary"), 120)
-        category = law.get("category") or "Unknown"
-        article_nums = [
-            article.get("article_num") or "-"
-            for article in _select_articles_for_query(law, query_text, 3)
-            if not _is_placeholder_article_num(article.get("article_num"))
-        ]
-        article_list = ", ".join(dict.fromkeys(article_nums)) if article_nums else {
-            "ru": "без разбивки на статьи",
-            "uz": "moddalarga ajratilmagan",
-            "en": "no article breakdown",
-        }[lang]
-        lines.append(
-            f"- {law['code']} | {category} | {article_list} | {summary or title}"
-        )
-
-    sources = _build_exact_sources(query_text, candidates, lang)
-    section_title = {
-        "ru": "Найдено по базе",
-        "uz": "Bazadan topildi",
-        "en": "Found in database",
-    }[lang]
-    sources_title = {
-        "ru": "Источники",
-        "uz": "Manbalar",
-        "en": "Sources",
-    }[lang]
-    return (
-        f"{intro}\n\n"
-        f"{section_title}:\n" + "\n".join(lines) +
-        f"\n\n{sources_title}:\n" + ("\n".join(sources) if sources else "-")
-    )
+    base_reply = _build_fast_lookup_reply(query_text, candidates, lang)
+    base_reply = _append_exact_sources(base_reply, candidates, query_text, lang)
+    return f"{intro}\n\n{base_reply}"
 
 
 def _build_analyze_fallback(candidates: list[dict], lang: str) -> dict:
@@ -769,7 +1226,14 @@ async def _ensure_reply_language(reply: str, target_lang: str) -> str:
 
 def _strip_sources_block(reply: str) -> str:
     text = reply or ""
-    for marker in ("\n\nИсточники:", "\n\nManbalar:", "\n\nSources:"):
+    for marker in (
+        "\n\nИспользованные документы и статьи:",
+        "\n\nFoydalanilgan hujjatlar va moddalar:",
+        "\n\nDocuments and Articles Used:",
+        "\n\nИсточники:",
+        "\n\nManbalar:",
+        "\n\nSources:",
+    ):
         if marker in text:
             return text.split(marker, 1)[0]
     return text
@@ -781,6 +1245,7 @@ def _make_chat_cache_key(
     top_k: int,
     dataset: str,
     candidate_signature: str,
+    preset_question: bool = False,
 ) -> str:
     payload = {
         "version": CHAT_CACHE_VERSION,
@@ -790,18 +1255,30 @@ def _make_chat_cache_key(
         "top_k": top_k,
         "dataset": dataset,
         "candidate_signature": candidate_signature,
+        "preset_question": preset_question,
     }
     raw = json.dumps(payload, ensure_ascii=False, sort_keys=True)
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
-def _make_analyze_cache_key(title: str, text: str, top_k: int, candidate_signature: str) -> str:
+def _make_analyze_cache_key(
+    title: str,
+    text: str,
+    top_k: int,
+    candidate_signature: str,
+    lang: str = "ru",
+    preset_case: bool = False,
+    preset_case_id: str = "",
+) -> str:
     payload = {
         "version": ANALYZE_CACHE_VERSION,
         "model": llm.ACTIVE_ANALYZE_MODEL,
         "title": title or "",
         "text": text or "",
         "top_k": top_k,
+        "lang": lang,
+        "preset_case": preset_case,
+        "preset_case_id": preset_case_id,
         "candidate_signature": candidate_signature,
     }
     raw = json.dumps(payload, ensure_ascii=False, sort_keys=True)

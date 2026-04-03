@@ -7,6 +7,7 @@ import { getAnalyzerExamples, pickRandomItems } from '../questionBank.js'
 export default function AnalyzerTab({ lang, t }) {
   const [title, setTitle] = useState('')
   const [text, setText] = useState('')
+  const [presetCaseId, setPresetCaseId] = useState('')
   const [loading, setLoading] = useState(false)
   const [status, setStatus] = useState('')
   const [results, setResults] = useState(null)
@@ -25,7 +26,14 @@ export default function AnalyzerTab({ lang, t }) {
     setStatus(t.statusSearch)
     try {
       setStatus(t.statusAI)
-      const data = await api.analyze({ title, text, top_k: 3 })
+      const data = await api.analyze({
+        title,
+        text,
+        top_k: 2,
+        lang,
+        preset_case: Boolean(presetCaseId),
+        preset_case_id: presetCaseId || undefined,
+      })
       setResults(data)
     } catch (e) {
       setError(e.message)
@@ -50,7 +58,7 @@ export default function AnalyzerTab({ lang, t }) {
           <label className="label">{t.titleLabel}</label>
           <input
             value={title}
-            onChange={e => setTitle(e.target.value)}
+            onChange={e => { setTitle(e.target.value); setPresetCaseId('') }}
             placeholder={t.titlePH}
             className="input"
           />
@@ -60,7 +68,7 @@ export default function AnalyzerTab({ lang, t }) {
           <label className="label">{t.textLabel}</label>
           <textarea
             value={text}
-            onChange={e => setText(e.target.value)}
+            onChange={e => { setText(e.target.value); setPresetCaseId('') }}
             rows={10}
             placeholder={t.textPH}
             className="input input--textarea"
@@ -98,7 +106,7 @@ export default function AnalyzerTab({ lang, t }) {
           {randomExamples.map((ex, i) => (
             <button
               key={i}
-              onClick={() => { setTitle(ex.title); setText(ex.text) }}
+              onClick={() => { setTitle(ex.title); setText(ex.text); setPresetCaseId(ex.id || '') }}
               className="example-btn"
             >
               📄 {ex.title}

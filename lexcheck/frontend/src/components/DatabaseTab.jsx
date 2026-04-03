@@ -98,6 +98,7 @@ export default function DatabaseTab({ lang, t }) {
       search: searchQuery || undefined,
       limit: PAGE_SIZE,
       offset: 0,
+      lang,
     })
       .then(data => {
         if (cancelled) return
@@ -114,13 +115,13 @@ export default function DatabaseTab({ lang, t }) {
       })
 
     return () => { cancelled = true }
-  }, [activeCategory, searchQuery, shouldFetchLaws])
+  }, [activeCategory, searchQuery, shouldFetchLaws, lang])
 
   useEffect(() => {
     if (!selectedCode) return
     let cancelled = false
     setLoadingLaw(true)
-    api.getLaw(selectedCode)
+    api.getLaw(selectedCode, { lang })
       .then(data => {
         if (!cancelled) setSelectedLaw(data)
       })
@@ -131,7 +132,7 @@ export default function DatabaseTab({ lang, t }) {
         if (!cancelled) setLoadingLaw(false)
       })
     return () => { cancelled = true }
-  }, [selectedCode])
+  }, [selectedCode, lang])
 
   useEffect(() => {
     if (!loadingList && shouldFetchLaws && window.innerWidth <= 1100) {
@@ -155,6 +156,7 @@ export default function DatabaseTab({ lang, t }) {
         search: searchQuery || undefined,
         limit: PAGE_SIZE,
         offset: nextOffset,
+        lang,
       })
       setLaws(prev => [...prev, ...data.items])
       setOffset(nextOffset)

@@ -1,11 +1,11 @@
 # LexCheck UZ
 
-LexCheck UZ is a full-stack legal analysis project for Uzbekistan legislation:
-- `frontend` — React/Vite UI
-- `backend` — FastAPI + PostgreSQL + Ollama
-- `lexai` — main PostgreSQL database
+Локальный проект для поиска и анализа законодательства Узбекистана:
+- `lexcheck/frontend` — React/Vite интерфейс
+- `lexcheck/backend` — FastAPI + PostgreSQL + Ollama
+- `lexai` — основная PostgreSQL база
 
-## Project Layout
+## Структура
 
 ```text
 .
@@ -20,112 +20,113 @@ LexCheck UZ is a full-stack legal analysis project for Uzbekistan legislation:
     └── db_import.sh
 ```
 
-## Quick Start
+## Быстрый старт
 
-Prerequisites:
-- Python 3.10+
+Нужно:
+- Python 3
 - PostgreSQL
 - Node.js / npm
-- Ollama if you use local LLM
+- Ollama, если используете локальную LLM
 
-Setup:
+Установка:
 
 ```bash
 chmod +x lexcheck/setup.sh
 ./lexcheck/setup.sh
 ```
 
-Run:
+Важно:
+- `setup.sh` больше не заливает `schema.sql` в `lexai`
+- если у вас уже есть рабочая база, она не будет перетираться
+- чтобы загрузить реальные данные, используйте backup restore
+
+Запуск:
 
 ```bash
 chmod +x run.sh
 ./run.sh
 ```
 
-App URLs:
+Адреса:
 - frontend: `http://localhost:3000`
 - backend: `http://127.0.0.1:8000`
 
-## Database
+## База данных
 
-The app uses PostgreSQL database `lexai` by default.
-
-Environment example:
+Пример `backend/.env`:
 
 ```env
 DATABASE_URL=postgresql://postgres:postgres@localhost:5432/lexai
+ACTIVE_DOCUMENT_LIMIT=20
 LLM_PROVIDER=ollama
 OLLAMA_URL=http://localhost:11434
 OLLAMA_MODEL=qwen2.5:7b
 ```
-<<<<<<< HEAD
-=======
 
-Persistent response cache:
+`ACTIVE_DOCUMENT_LIMIT=20` включает быстрый режим:
+- frontend показывает только 20 активных документов
+- поиск, категории и ассистент работают по этому же ограниченному набору
+- это заметно ускоряет приложение
 
-```env
-PERSISTENT_CACHE_ENABLED=true
-PERSISTENT_CHAT_CACHE_TTL=43200
-PERSISTENT_ANALYZE_CACHE_TTL=43200
-```
-
-Repeated identical requests can then return much faster, even after backend restart.
-
-Template file:
+Шаблон env:
 - [lexcheck/backend/.env.example](/home/diishka/Desktop/projects/lexcheck/lexcheck/backend/.env.example)
 
-## How To Send Database To Someone
+## Передача базы другому человеку
 
-Export the current database into a backup file:
+Экспорт:
 
 ```bash
 chmod +x scripts/db_export.sh
 ./scripts/db_export.sh
 ```
 
-This creates a file like:
+Это создаст файл вида:
 
 ```text
-backups/lexai_20260325_153000.dump
+backups/lexai_YYYYMMDD_HHMMSS.dump
 ```
 
-You can send that `.dump` file to another person together with the project.
-
-## How Another Person Restores The Database
+Восстановление на другой машине:
 
 ```bash
 chmod +x scripts/db_import.sh
-./scripts/db_import.sh backups/lexai_20260325_153000.dump
+./scripts/db_import.sh backups/lexai_YYYYMMDD_HHMMSS.dump
 ```
 
-After restore, they can run:
+После восстановления:
 
 ```bash
 ./run.sh
 ```
 
-## GitHub Push
+## Ollama
 
-Typical flow:
+Локальная модель:
+
+```bash
+ollama pull qwen2.5:7b
+```
+
+Потом в `backend/.env`:
+
+```env
+LLM_PROVIDER=ollama
+OLLAMA_MODEL=qwen2.5:7b
+```
+
+## GitHub
+
+Обычный flow:
 
 ```bash
 git add .
-git commit -m "Prepare project for GitHub and DB sharing"
+git commit -m "Audit project and enable fast 20-document mode"
 git branch -M main
 git remote add origin <YOUR_GITHUB_REPO_URL>
 git push -u origin main
 ```
 
-Notes:
-- `.env` is ignored by git
-- `backups/` is ignored by git
-- send the database dump separately, not through GitHub
-
-## Recommended Workflow
-
-1. Push code to GitHub.
-2. Export DB with `./scripts/db_export.sh`.
-3. Send the `.dump` file separately.
-4. On another machine restore it with `./scripts/db_import.sh ...`.
-5. Start the app with `./run.sh`.
->>>>>>> 084dd92 (updated)
+Примечания:
+- `.env` не уходит в git
+- `backups/` не уходит в git
+- runtime cache и локальные служебные файлы тоже игнорируются
