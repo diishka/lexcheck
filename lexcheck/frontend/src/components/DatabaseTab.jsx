@@ -115,7 +115,7 @@ export default function DatabaseTab({ lang, t }) {
       })
 
     return () => { cancelled = true }
-  }, [activeCategory, searchQuery, shouldFetchLaws, lang])
+  }, [activeCategory, searchQuery, shouldFetchLaws]) // <- тут был еще один аргумент "lang"
 
   useEffect(() => {
     if (!selectedCode) return
